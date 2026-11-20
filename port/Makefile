@@ -6,17 +6,22 @@ LIB      := src/archive.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp
 BIN      := build/stageinfo
 CAPI     := build/capi_test
 
+# glibc has iconv built in; macOS ships it as a separate libiconv.
+ifeq ($(shell uname -s),Darwin)
+LDLIBS   += -liconv
+endif
+
 all: $(BIN) $(CAPI)
 
 $(BIN): $(LIB) src/stageinfo.cpp src/*.h
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -o $@ $(LIB) src/stageinfo.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $(LIB) src/stageinfo.cpp $(LDLIBS)
 
 # C API smoke test: compiled as C (like the Swift bridging header sees it), linked as C++.
 $(CAPI): $(LIB) src/daybreak_c.cpp tests/capi_test.c src/*.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c tests/capi_test.c -o $@.o
-	$(CXX) $(CXXFLAGS) -o $@ $@.o $(LIB) src/daybreak_c.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $@.o $(LIB) src/daybreak_c.cpp $(LDLIBS)
 
 clean:
 	rm -rf build
