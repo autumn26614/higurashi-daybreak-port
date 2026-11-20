@@ -1,0 +1,74 @@
+# XcodeGen spec (https://github.com/yonaskolb/XcodeGen): `xcodegen generate` in this folder
+# creates DaybreakStageViewer.xcodeproj. Manual setup without XcodeGen: see README.md.
+name: DaybreakStageViewer
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+targets:
+  DaybreakStageViewer:
+    type: application
+    platform: iOS
+    sources:
+      - path: DaybreakStageViewer
+      - path: ../src
+        excludes:
+          - stageinfo.cpp   # CLI entry point (has its own main)
+      - path: Fixtures      # synthetic fixture.dat, used with -useBundledFixture
+        buildPhase: resources
+    info:
+      path: DaybreakStageViewer/Info.plist
+      properties:
+        CFBundleDisplayName: Daybreak Stage
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.DaybreakStageViewer
+        SWIFT_OBJC_BRIDGING_HEADER: DaybreakStageViewer/Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../src
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "DB_NO_ICONV=1"]
+
+  DaybreakStageViewerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/Unit
+      - path: Fixtures
+        buildPhase: resources
+    dependencies:
+      - target: DaybreakStageViewer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.DaybreakStageViewerTests
+        GENERATE_INFOPLIST_FILE: YES
+        # @testable import of an app that uses a bridging header needs the same header here.
+        SWIFT_OBJC_BRIDGING_HEADER: DaybreakStageViewer/Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../src
+
+  DaybreakStageViewerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/UI
+    dependencies:
+      - target: DaybreakStageViewer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.DaybreakStageViewerUITests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  DaybreakStageViewer:
+    build:
+      targets:
+        DaybreakStageViewer: all
+    test:
+      config: Debug
+      targets:
+        - DaybreakStageViewerTests
+        - DaybreakStageViewerUITests

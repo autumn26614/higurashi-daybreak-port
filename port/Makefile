@@ -1,0 +1,24 @@
+CXX      ?= g++
+CC       ?= cc
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
+CFLAGS   ?= -std=c11 -O2 -Wall -Wextra
+LIB      := src/archive.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp
+BIN      := build/stageinfo
+CAPI     := build/capi_test
+
+all: $(BIN) $(CAPI)
+
+$(BIN): $(LIB) src/stageinfo.cpp src/*.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ $(LIB) src/stageinfo.cpp
+
+# C API smoke test: compiled as C (like the Swift bridging header sees it), linked as C++.
+$(CAPI): $(LIB) src/daybreak_c.cpp tests/capi_test.c src/*.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c tests/capi_test.c -o $@.o
+	$(CXX) $(CXXFLAGS) -o $@ $@.o $(LIB) src/daybreak_c.cpp
+
+clean:
+	rm -rf build
+
+.PHONY: all clean

@@ -1,0 +1,69 @@
+# Manually triggered: builds port/ios with XcodeGen and runs the unit + UI tests in the
+# iOS Simulator against the synthetic fixture (no game data is needed or used).
+# Start it from the Actions tab ("Run workflow") or: gh workflow run ios-simulator.yml
+name: iOS simulator test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          python3 --version
+
+      - name: Fixture is reproducible from port/tools/make_fixture.py
+        run: |
+          python3 port/tools/make_fixture.py "$RUNNER_TEMP/fixture.dat"
+          cmp port/ios/Fixtures/fixture.dat "$RUNNER_TEMP/fixture.dat"
+
+      - name: C API check on macOS (clang, same fixture)
+        working-directory: port
+        run: |
+          make CXX=clang++ CC=clang
+          build/capi_test ios/Fixtures/fixture.dat 1 fixture
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: port/ios
+        run: xcodegen generate
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 port/ios/ci/pick_simulator.py)
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test in the iOS Simulator
+        working-directory: port/ios
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project DaybreakStageViewer.xcodeproj \
+            -scheme DaybreakStageViewer \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath "$RUNNER_TEMP/TestResults.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-results
+          path: |
+            ${{ runner.temp }}/TestResults.xcresult
+            ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
