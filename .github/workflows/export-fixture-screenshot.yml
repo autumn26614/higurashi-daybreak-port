@@ -1,0 +1,41 @@
+name: Export saved fixture screenshot
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/export-fixture-screenshot.yml']
+permissions:
+  actions: read
+jobs:
+  export:
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-simulator-results
+          run-id: 44763424605
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/fixture-result
+      - name: Read saved fixture-results attachment
+        run: |
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/fixture-result/TestResults.xcresult" --output-path "$RUNNER_TEMP/attachments"
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          directory = Path(os.environ["RUNNER_TEMP"]) / "attachments"
+          manifest = json.loads((directory / "manifest.json").read_text())
+          matches = [attachment for test in manifest for attachment in test["attachments"]
+                     if attachment.get("suggestedHumanReadableName", "").startswith("fixture-results")
+                     and attachment.get("exportedFileName", "").endswith(".png")]
+          assert len(matches) == 1, (len(matches), manifest)
+          png = (directory / matches[0]["exportedFileName"]).read_bytes()
+          assert png.startswith(b"\x89PNG\r\n\x1a\n")
+          encoded = base64.b64encode(png).decode("ascii")
+          print("FIXTURE_PNG_SHA256", hashlib.sha256(png).hexdigest())
+          for offset in range(0, len(encoded), 2048):
+              print("FIXTURE_PNG_DATA", encoded[offset:offset + 2048])
+          PY
