@@ -10,7 +10,7 @@ cd port && make                  # → build/stageinfo
 
 ## Use
 ```sh
-D="/mnt/c/Users/Autumn/Desktop/HigurashiDaybreak-iOS/Higurashi Daybreak (Japan)/data"
+D="/path/to/Higurashi Daybreak (Japan)/data"
 build/stageinfo "$D/daybreak00.dat" 1            # stage 01: env, mesh slots, collision, textures
 build/stageinfo "$D/daybreak00.dat" 1 --tree     # + per-mesh lines
 build/stageinfo "$D/daybreak00.dat" --x data/stage01/collision.x
@@ -58,7 +58,7 @@ Textures referenced by visual meshes (85 unique):
 Toolchain: Ubuntu 26.04 (WSL), g++ 15.2.0, GNU Make 4.4.1, installed with `apt-get install -y g++ make`.
 ```sh
 cd port && make        # g++ -std=c++17 -O2 -Wall -Wextra ... → build/stageinfo; builds clean, no warnings
-build/stageinfo "/mnt/c/Users/Autumn/Desktop/HigurashiDaybreak-iOS/Higurashi Daybreak (Japan)/data/daybreak00.dat" 1
+build/stageinfo "/path/to/Higurashi Daybreak (Japan)/data/daybreak00.dat" 1
 ```
 Stage 01, WSL compared with the Windows (llvm-mingw clang++) build of the same source:
 
