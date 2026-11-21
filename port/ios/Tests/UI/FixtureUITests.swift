@@ -52,6 +52,17 @@ final class FixtureUITests: XCTestCase {
         XCTAssertTrue(element(containing: "テスト草01.bmp", in: app).exists, "Japanese texture name missing")
         assertNoFailedChecks(app, "after scrolling")
         screenshot(app, "fixture-results-scrolled")
+
+        // Open the texture from the "All textures" list and check the decoded size.
+        let textureRow = app.buttons["textureRow.0"]
+        for _ in 0..<6 where !textureRow.exists { app.swipeUp() }
+        XCTAssertTrue(textureRow.exists, "texture row not found")
+        textureRow.tap()
+        let size = app.staticTexts["textureSize"]
+        XCTAssertTrue(size.waitForExistence(timeout: 30), "texture preview did not load")
+        XCTAssertEqual(size.label, "2 × 2 px, 32 bpp")
+        XCTAssertFalse(app.staticTexts["error"].exists, "texture preview reported an error")
+        screenshot(app, "fixture-texture-preview")
     }
 
     /// Kai mode: overlay fixture searched before the base fixture.

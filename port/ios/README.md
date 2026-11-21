@@ -74,10 +74,13 @@ Switch the segmented control to **Kai**, tap **Choose daybreak00.dat + daybreak0
 
 The same C call (`db_stage_report_open_set`, 04 then 00) was checked on Linux against the real archives with `build/capi_test <daybreak00.dat> 16 kai <daybreak04.dat>`. It passes on x86-64 and on aarch64 under QEMU, and fails when daybreak00 is passed in place of daybreak04. The Swift side runs first in CI.
 
+## Texture preview
+Every resolved row under **All textures** opens a preview. The preview decodes that `.cnv` from the same archives, in the same search order, through `db_archives_open` / `db_image_load`. It shows the texture at its stored pixels without smoothing, with its size and bpp. Decoding was checked against all 5,418 images in daybreak00 and Kai daybreak04 on Linux (`port/README.md`, "Textures"). On iOS it is so far exercised only with the fixture texture: 2×2 red, green, blue and white.
+
 ## CI: simulator test without game data
 `.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow file) runs on a `macos-15` runner:
 1. Regenerates `Fixtures/fixture.dat` and `fixture-overlay.dat` with `port/tools/make_fixture.py` and requires both to match the committed copies byte for byte.
-2. Builds `port/` natively with clang and runs `capi_test … fixture`.
+2. Builds `port/` natively with clang and runs `capi_test … fixture` and `make test`.
 3. `xcodegen generate`, then `xcodebuild test` on the newest available iPhone simulator (`ci/pick_simulator.py`), unsigned (`CODE_SIGNING_ALLOWED=NO`).
 4. Uploads the `.xcresult` (including a screenshot of the results screen) and the build log as the `ios-simulator-results` artifact.
 
@@ -88,6 +91,8 @@ The fixture is synthetic (1,193 bytes): one text `.x` mesh with a single triangl
 A second fixture, `Fixtures/fixture-overlay.dat` (575 bytes, written by the same script), holds only `DATA/Stage01/00.X`. That is the same mesh with two triangles, under a differently cased name. It stands in for daybreak04:
 - Unit: `[overlay, base]` gives 1 mesh / 2 tris with the texture resolved from the base, and `[base, overlay]` gives 1 tri. The overlay alone resolves no texture. A missing archive or an empty list throws. `ArchiveOrder.kai` orders picked files 04 → 00 and rejects any other selection.
 - UI: `-useBundledFixture -kai` must show `1 meshes / 2 tris`, the search order `fixture-overlay.dat → fixture.dat` and no ✗.
+
+Texture preview: the unit tests decode the fixture texture to the exact RGBA bytes and check that the `CGImage` hands out those bytes unchanged (straight alpha). They also check the error cases: missing name, empty name, missing archive. The base UI test taps the texture row and expects `2 × 2 px, 32 bpp`.
 
 Verified locally: the fixture reads back with the Python reader (`analysis/tools/dbdat.py`), with `stageinfo`, and with `capi_test … fixture` (PASS on x86-64, and on aarch64 under QEMU). The Swift and Xcode parts run for the first time on the CI runner.
 

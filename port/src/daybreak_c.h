@@ -36,6 +36,25 @@ const char* db_stage_texture_archive_name(const DBStageReport* r, int32_t i, int
 int32_t db_stage_texture_found(const DBStageReport* r, int32_t i);
 int32_t db_stage_texture_mips(const DBStageReport* r, int32_t i);
 
+/* ---- Archives and images ------------------------------------------------------------
+ * A set of archives opened once, searched in the given order (Kai: daybreak04, then
+ * daybreak00). Not thread-safe: use one DBArchives from one thread at a time. */
+typedef struct DBArchives DBArchives;
+DBArchives* db_archives_open(const char* const* dat_paths, int32_t count, char* err, int32_t err_len);
+void db_archives_free(DBArchives* a);
+
+/* Decodes one image .cnv. name = raw cp932 bytes of the entry; a name not ending in
+ * ".cnv" (the ".bmp" the game asks for) has its last three bytes swapped for "cnv",
+ * as the engine does. Returns NULL with a message in err on failure. */
+typedef struct DBImage DBImage;
+DBImage* db_image_load(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len);
+void db_image_free(DBImage* img);
+int32_t db_image_width(const DBImage* img);  /* pixels per row */
+int32_t db_image_height(const DBImage* img);
+int32_t db_image_bpp(const DBImage* img);    /* 24 or 32 as stored; output is always RGBA */
+/* width*height*4 bytes, R,G,B,A, top row first, straight (non-premultiplied) alpha. */
+const uint8_t* db_image_rgba(const DBImage* img);
+
 #ifdef __cplusplus
 }
 #endif

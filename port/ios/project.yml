@@ -17,6 +17,8 @@ targets:
       - path: ../src
         excludes:
           - stageinfo.cpp   # CLI entry point (has its own main)
+          - png.cpp         # PNG writer used only by the CLI
+          - png.h
       - path: Fixtures      # synthetic fixture.dat, used with -useBundledFixture
         buildPhase: resources
     info:

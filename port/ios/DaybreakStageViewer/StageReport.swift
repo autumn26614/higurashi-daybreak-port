@@ -7,6 +7,7 @@ struct TextureResult: Identifiable {
     let id: Int
     let name: String          // decoded from cp932
     let archiveName: String   // decoded from cp932
+    let archiveNameBytes: [UInt8]  // raw cp932, for looking the entry up again
     let found: Bool
     let mips: Int
     let isJapanese: Bool      // name contains non-ASCII bytes
@@ -57,16 +58,10 @@ struct StageReport {
     /// (Kai: daybreak04.dat, then daybreak00.dat; see ArchiveOrder.kai).
     static func load(paths: [String], stage: Int32) throws -> StageReport {
         var err = [CChar](repeating: 0, count: 256)
-        let cPaths = paths.map { strdup($0) }
-        defer { cPaths.forEach { free($0) } }
-        let cArgs: [UnsafePointer<CChar>?] = cPaths.map { $0.map { UnsafePointer<CChar>($0) } }
-        let opened = cArgs.withUnsafeBufferPointer { buffer in
-            db_stage_report_open_set(buffer.baseAddress, Int32(buffer.count), stage, &err, Int32(err.count))
+        let opened = withCPaths(paths) { argv, count in
+            db_stage_report_open_set(argv, count, stage, &err, Int32(err.count))
         }
-        guard let report = opened else {
-            let bytes = err.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-            throw ReportError.open(String(decoding: bytes, as: UTF8.self))
-        }
+        guard let report = opened else { throw ReportError.open(message(err)) }
         defer { db_stage_report_free(report) }
 
         var textures: [TextureResult] = []
@@ -75,11 +70,16 @@ struct StageReport {
             var nameLength: Int32 = 0
             var archiveLength: Int32 = 0
             let name = decode(db_stage_texture_name(report, i, &nameLength), nameLength)
-            let archive = decode(db_stage_texture_archive_name(report, i, &archiveLength), archiveLength)
+            let archivePointer = db_stage_texture_archive_name(report, i, &archiveLength)
+            let archive = decode(archivePointer, archiveLength)
+            let archiveBytes = archivePointer.map {
+                Array(UnsafeRawBufferPointer(start: $0, count: Int(max(archiveLength, 0))))
+            } ?? []
             textures.append(TextureResult(
                 id: Int(i),
                 name: name.text,
                 archiveName: archive.text,
+                archiveNameBytes: archiveBytes,
                 found: db_stage_texture_found(report, i) == 1,
                 mips: Int(db_stage_texture_mips(report, i)),
                 isJapanese: name.nonASCII))
@@ -93,6 +93,20 @@ struct StageReport {
             parseErrors: Int(db_stage_error_count(report)),
             textures: textures)
     }
+}
+
+/// Calls `body` with a C array of the paths (`const char* const*`, count), valid only
+/// during the call.
+func withCPaths<R>(_ paths: [String], _ body: (UnsafePointer<UnsafePointer<CChar>?>?, Int32) -> R) -> R {
+    let cPaths = paths.map { strdup($0) }
+    defer { cPaths.forEach { free($0) } }
+    let cArgs: [UnsafePointer<CChar>?] = cPaths.map { $0.map { UnsafePointer<CChar>($0) } }
+    return cArgs.withUnsafeBufferPointer { body($0.baseAddress, Int32($0.count)) }
+}
+
+/// The NUL-terminated message a C API call wrote into `err`.
+func message(_ err: [CChar]) -> String {
+    String(decoding: err.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
 /// Archive search order. DaybreakDX.exe attaches daybreak04.dat before daybreak00.dat

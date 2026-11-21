@@ -60,7 +60,7 @@ assert X_FILE_2 != X_FILE and X_FILE_2.count("3;1,3,2;;") == 1
 
 
 def cnv_image():
-    # u8 bpp, u32 width, u32 row length, u32 height, u32 packed_size(0), then BGRA pixels
+    # u8 bpp, u32 width, u32 height, u32 pitch, u32 packed_size(0), then BGRA pixels
     pixels = bytes([0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255])
     return struct.pack("<BIIII", 32, 2, 2, 2, 0) + pixels
 

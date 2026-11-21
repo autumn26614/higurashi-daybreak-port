@@ -14,6 +14,8 @@
 #include <vector>
 
 #include "archive.h"
+#include "cnv.h"
+#include "png.h"
 #include "stage.h"
 #include "xfile.h"
 
@@ -127,6 +129,85 @@ int run_x(const Source& a, const std::string& name) {
     return 0;
 }
 
+// One .cnv (or the .bmp/.wav name the game asks for) to PNG.
+int run_cnv(const Source& a, const std::string& name, const std::string& out_path) {
+    const std::string lower = lower_ascii(name);
+    const bool is_cnv = lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".cnv") == 0;
+    const std::string entry = is_cnv ? name : cnv_name(name);
+    const Entry* e = a.find(entry);
+    std::vector<uint8_t> data;
+    std::string err;
+    if (!e) {
+        fprintf(stderr, "%s: missing\n", entry.c_str());
+        return 1;
+    }
+    if (!a.read(*e, data, &err)) {
+        fprintf(stderr, "%s\n", err.c_str());
+        return 1;
+    }
+    if (cnv_kind(data) == CnvKind::Sound) {
+        Sound s;
+        if (!decode_sound(data, s, &err)) {
+            fprintf(stderr, "%s: %s\n", entry.c_str(), err.c_str());
+            return 1;
+        }
+        printf("%s: sound, %u ch, %u Hz, %u bit, %zu PCM bytes (not written)\n", utf8(entry).c_str(), s.channels,
+               s.rate, s.bits, s.pcm.size());
+        return 0;
+    }
+    Image img;
+    if (!decode_image(data, img, &err)) {
+        fprintf(stderr, "%s: %s\n", entry.c_str(), err.c_str());
+        return 1;
+    }
+    if (!write_file(out_path, encode_png_rgba(img.width, img.height, img.rgba), &err)) {
+        fprintf(stderr, "%s\n", err.c_str());
+        return 1;
+    }
+    printf("%s: %ux%u (pitch %u), %u bpp -> %s\n", utf8(entry).c_str(), img.width, img.height, img.pitch,
+           img.bpp, out_path.c_str());
+    return 0;
+}
+
+// Decodes every .cnv entry of every archive (shadowed ones included).
+int run_cnv_check(const std::vector<Archive>& archives, const std::vector<std::string>& paths) {
+    int bad = 0;
+    for (size_t i = 0; i < archives.size(); ++i) {
+        long images = 0, sounds = 0, bpp24 = 0, bpp32 = 0, errors = 0, other = 0;
+        for (const auto& e : archives[i].entries()) {
+            std::string n = lower_ascii(e.name);
+            if (n.size() < 4 || n.compare(n.size() - 4, 4, ".cnv") != 0) continue;
+            std::vector<uint8_t> data;
+            std::string err;
+            bool ok = archives[i].read(e, data, &err);
+            if (ok) switch (cnv_kind(data)) {
+                    case CnvKind::Image: {
+                        Image img;
+                        ok = decode_image(data, img, &err);
+                        if (ok) ++images, ++(img.bpp == 32 ? bpp32 : bpp24);
+                        break;
+                    }
+                    case CnvKind::Sound: {
+                        Sound s;
+                        ok = decode_sound(data, s, &err);
+                        if (ok) ++sounds;
+                        break;
+                    }
+                    case CnvKind::Unknown:
+                        ++other;
+                        ok = false;
+                        err = "unrecognised header";
+                        break;
+                }
+            if (!ok && ++errors <= 5) fprintf(stderr, "  %s: %s\n", utf8(e.name).c_str(), err.c_str());
+        }
+        printf("%s: %ld images (%ld 24-bpp, %ld 32-bpp), %ld sounds, %ld errors (%ld unrecognised)\n",
+               paths[i].c_str(), images, bpp24, bpp32, sounds, errors, other);
+        bad += errors ? 1 : 0;
+    }
+    return bad ? 1 : 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -143,9 +224,11 @@ int main(int argc, char** argv) {
                 "usage: %s <daybreak00.dat> <stage> [--tree]\n"
                 "       %s <daybreak00.dat> --x <entry-name>\n"
                 "       %s <daybreak00.dat> --stages\n"
+                "       %s <daybreak00.dat> --cnv <entry-name> <out.png>   (a .bmp name is mapped to .cnv)\n"
+                "       %s <daybreak00.dat> --cnv-check                    decode every .cnv entry\n"
                 "  --overlay <dat>  search this archive before daybreak00.dat (repeatable, in order);\n"
                 "                   Kai: --overlay daybreak04.dat\n",
-                argv[0], argv[0], argv[0]);
+                argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
     std::vector<std::string> paths = overlays;
@@ -162,6 +245,8 @@ int main(int argc, char** argv) {
     }
     const std::string& arg = args[1];
     if (arg == "--x" && args.size() >= 3) return run_x(set, args[2]);
+    if (arg == "--cnv" && args.size() >= 4) return run_cnv(set, args[2], args[3]);
+    if (arg == "--cnv-check") return run_cnv_check(archives, paths);
     if (arg == "--stages") {
         std::set<std::string> dirs;
         for (const auto& a : archives)

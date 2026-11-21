@@ -15,6 +15,8 @@ build/stageinfo "$D/daybreak00.dat" 1            # stage 01: env, mesh slots, co
 build/stageinfo "$D/daybreak00.dat" 1 --tree     # + per-mesh lines
 build/stageinfo "$D/daybreak00.dat" --x data/stage01/collision.x
 build/stageinfo "$D/daybreak00.dat" --stages
+build/stageinfo "$D/daybreak00.dat" --cnv data/title/back00.bmp back00.png   # one texture to PNG
+build/stageinfo "$D/daybreak00.dat" --cnv-check                              # decode every .cnv
 ```
 The tool only reads the archive and never writes anything.
 
@@ -28,12 +30,15 @@ build/stageinfo "$D/daybreak00.dat" --overlay "$KAI/daybreak04.dat" 16
 |---|---|
 | `src/archive.*` | `daybreakNN.dat`: index rolling-XOR, per-entry XOR, case-insensitive lookup (see `analysis/02-archive-format.md`); `ArchiveSet` = ordered multi-archive search (Kai: 04 then 00) |
 | `src/inflate.*` | raw DEFLATE with preset dictionary (for MSZIP `.x`) |
+| `src/cnv.*` | `.cnv` images (BGRA → RGBA8, width/height/pitch) and PCM sounds; `.bmp` → `.cnv` name mapping |
+| `src/png.*` | uncompressed PNG writer, CLI only (not in the app) |
 | `src/xfile.*` | DirectX `.x` `txt ` / `bin ` / `bzip` (and `tzip`) → generic object tree |
 | `src/stage.*` | shared analysis, following `Stage::Load` (0x405B50): slots `%02d.x`/`%02db.x`, mesh/triangle counts, and texture resolution exactly as the engine does it (dir + name, `bmp`→`cnv`, `_N` mips) |
 | `src/stageinfo.cpp` | CLI front end (env.dat, slots, three collision meshes, texture list) |
 | `src/daybreak_c.*` | plain C API over `stage.*` for Swift / other callers; names returned as raw cp932 bytes |
 | `tests/capi_test.c` | C caller of the API; checks the stage 01 expected values (PASS/FAIL) |
 | `tests/archive_set_test.cpp` | `make test`: writes two synthetic archives and checks lookup order, fallthrough, case-insensitivity, per-archive reads and `db_stage_report_open_set` |
+| `tests/cnv_test.cpp` | `make test`: `.cnv` decoding on synthetic payloads (pitch padding, every rejection path, sounds) and `db_archives_open` / `db_image_load` on the fixtures |
 | `ios/` | SwiftUI test app over the C API; see `ios/README.md` (not yet built: needs a Mac) |
 
 ## Sample output (stage 01; abridged)
@@ -111,6 +116,17 @@ Against Kai `daybreak04.dat` (4434 entries, copied out of the disc image to a sc
 | 01–05, 11–15, 21 | — | unchanged |
 
 Stages 05 and 15 are missing 4 textures with or without the overlay. Not yet covered: the iOS app still opens one archive; BGM (`daybreak05`) and movies (`02`/`06`) are separate in Kai and are not part of this search.
+
+### Textures: `.cnv` decoding (2026-11-21)
+Header: `u8 bpp | u32 width | u32 height | u32 pitch | u32 packed(0)`, then `height*pitch*4` bytes of BGRA, top-down. 24-bpp images also use 4 bytes per pixel, and get alpha 255. This corrects the earlier reading (texture width, row length, height). That reading only worked for square images, which are 3,461 of the 3,651 in daybreak00. `data/title/back00.cnv` is stored as (800, 600, 800) and decodes to the 800×600 title background only with the corrected order. `data/object/勝利バー.cnv` (257, 2, 260) shows a padded pitch. Details: `analysis/04-scenes-and-cnv.md`.
+
+Checks (WSL g++ 15.2, no warnings):
+- `--cnv-check` decodes every `.cnv` with 0 errors. daybreak00: 3,651 images (2,427 24-bpp, 1,224 32-bpp) and 2,629 sounds. Kai daybreak04: 1,767 images and 1,464 sounds.
+- **All 5,418 images** in both archives are pixel-identical to an independent Python decode of the same entries, through the CLI's PNG output.
+- Visual check: `back00` (800×600 title background), `tomitake/一目` (256×128 eye sprite with alpha), Kai `stage16/鳥居1a`.
+- `make test` (`cnv_test`) passes on x86-64 and on aarch64 under QEMU.
+
+C API: `db_archives_open(paths, count)` (search order as above), `db_image_load(archives, raw_cp932_name, len)`, then `db_image_width/height/bpp/rgba`. The iOS app uses these for its texture preview.
 
 ## Port notes (what this means for a Metal renderer)
 See `analysis/05-stage-loading.md`. In short: stage geometry is plain world-space meshes with per-vertex colour, normals and UVs. Each slot has a fixed render recipe (opaque / multiplicative / alpha-tested + point-sampled / sky). `material.Power != 0` means additive. D3D is left-handed with CCW culling.

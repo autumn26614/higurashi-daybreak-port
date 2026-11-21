@@ -73,6 +73,28 @@ final class StageReportTests: XCTestCase {
         XCTAssertThrowsError(try StageReport.load(paths: [], stage: 1))
     }
 
+    /// The fixture texture through the report's own entry name: 2x2 red, green, blue, white.
+    func testTextureDecodes() throws {
+        let r = try StageReport.load(paths: [overlayPath(), fixturePath()], stage: 1)
+        let t = try XCTUnwrap(r.textures.first)
+        let image = try TextureImage.load(paths: [overlayPath(), fixturePath()], name: t.archiveNameBytes)
+        XCTAssertEqual(image.width, 2)
+        XCTAssertEqual(image.height, 2)
+        XCTAssertEqual(image.bpp, 32)
+        XCTAssertEqual(Array(image.rgba), [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255])
+        XCTAssertEqual(image.cgImage.width, 2)
+        XCTAssertEqual(image.cgImage.alphaInfo, .last)
+        // The bytes the CGImage hands out are the decoded ones, unchanged.
+        let data = try XCTUnwrap(image.cgImage.dataProvider?.data) as Data
+        XCTAssertEqual(data, image.rgba)
+    }
+
+    func testTextureErrors() throws {
+        XCTAssertThrowsError(try TextureImage.load(paths: [fixturePath()], name: Array("data/stage01/none.bmp".utf8)))
+        XCTAssertThrowsError(try TextureImage.load(paths: [fixturePath()], name: []))
+        XCTAssertThrowsError(try TextureImage.load(paths: ["/nonexistent/daybreak00.dat"], name: Array("a.bmp".utf8)))
+    }
+
     func testKaiOrderFromPickedFiles() throws {
         let base = URL(fileURLWithPath: "/x/DayBreak00.DAT")
         let kai = URL(fileURLWithPath: "/y/daybreak04.dat")

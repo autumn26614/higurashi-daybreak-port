@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var mode = ArchiveMode.base
     @State private var showPicker = false
     @State private var fileNames: [String] = []
+    @State private var archiveURLs: [URL] = []   // search order of the current report
     @State private var stage: Int32 = 1
     @State private var report: StageReport?
     @State private var expected = ExpectedValues.retailStage01
@@ -119,13 +120,19 @@ struct ContentView: View {
                 Text("No Japanese texture names found").foregroundStyle(.red)
             }
         }
-        Section("All textures") {
+        Section("All textures (tap to view)") {
             ForEach(r.textures) { t in
-                HStack {
+                let row = HStack {
                     Text(t.name).lineLimit(1)
                     Spacer()
                     Text(t.found ? (t.mips > 0 ? "ok +\(t.mips)" : "ok") : "missing")
                         .foregroundStyle(t.found ? Color.secondary : Color.red)
+                }
+                if t.found {
+                    NavigationLink { TexturePreview(urls: archiveURLs, texture: t) } label: { row }
+                        .accessibilityIdentifier("textureRow.\(t.id)")
+                } else {
+                    row
                 }
             }
         }
@@ -145,6 +152,7 @@ struct ContentView: View {
     /// `urls` are in search order: the first archive that has a name wins.
     private func open(_ urls: [URL], stage: Int32, expecting: ExpectedValues) {
         fileNames = urls.map { $0.lastPathComponent }
+        archiveURLs = urls
         self.stage = stage
         report = nil
         errorText = nil
