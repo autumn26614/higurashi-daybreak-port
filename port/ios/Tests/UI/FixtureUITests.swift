@@ -60,7 +60,8 @@ final class FixtureUITests: XCTestCase {
         textureRow.tap()
         let size = app.staticTexts["textureSize"]
         XCTAssertTrue(size.waitForExistence(timeout: 30), "texture preview did not load")
-        XCTAssertEqual(size.label, "2 × 2 px, 32 bpp")
+        // LabeledContent may merge its label in front ("Size, 2 × 2 px, 32 bpp").
+        XCTAssertTrue(size.label.hasSuffix("2 × 2 px, 32 bpp"), "unexpected size: \(size.label)")
         XCTAssertFalse(app.staticTexts["error"].exists, "texture preview reported an error")
         screenshot(app, "fixture-texture-preview")
     }
