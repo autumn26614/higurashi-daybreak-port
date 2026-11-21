@@ -58,7 +58,15 @@ const Entry* Archive::find(const std::string& name) const {
     return nullptr;
 }
 
+bool Archive::owns(const Entry& e) const {
+    return !entries_.empty() && &e >= entries_.data() && &e < entries_.data() + entries_.size();
+}
+
 bool Archive::read(const Entry& e, std::vector<uint8_t>& out, std::string* err) const {
+    if (!f_) {
+        *err = "archive not open";
+        return false;
+    }
     out.resize(e.size);
 #ifdef _WIN32
     int rc = _fseeki64(f_, int64_t(e.offset), SEEK_SET);
@@ -73,6 +81,26 @@ bool Archive::read(const Entry& e, std::vector<uint8_t>& out, std::string* err) 
     uint8_t k = uint8_t((e.offset >> 1) | 8);
     for (auto& b : out) b ^= k;
     return true;
+}
+
+const Entry* ArchiveSet::find(const std::string& name) const {
+    for (const Archive* a : archives_)
+        if (const Entry* e = a->find(name)) return e;
+    return nullptr;
+}
+
+int ArchiveSet::which(const std::string& name) const {
+    for (size_t i = 0; i < archives_.size(); ++i)
+        if (archives_[i]->find(name)) return int(i);
+    return -1;
+}
+
+bool ArchiveSet::read(const Entry& e, std::vector<uint8_t>& out, std::string* err) const {
+    // Each archive has its own file and offsets, so read through the one that owns e.
+    for (const Archive* a : archives_)
+        if (a->owns(e)) return a->read(e, out, err);
+    *err = "entry not from this archive set: " + e.name;
+    return false;
 }
 
 }  // namespace db

@@ -35,6 +35,7 @@ jobs:
         run: |
           make CXX=clang++ CC=clang
           build/capi_test ios/Fixtures/fixture.dat 1 fixture
+          make CXX=clang++ CC=clang test
 
       - name: Install XcodeGen
         run: brew install xcodegen

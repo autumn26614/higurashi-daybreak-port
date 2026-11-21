@@ -26,25 +26,38 @@ bool valid(const DBStageReport* r, int32_t i) {
 
 extern "C" {
 
-DBStageReport* db_stage_report_open(const char* dat_path, int32_t stage, char* err, int32_t err_len) {
-    if (!dat_path) {
+DBStageReport* db_stage_report_open_set(const char* const* dat_paths, int32_t count, int32_t stage, char* err,
+                                        int32_t err_len) {
+    if (!dat_paths || count <= 0) {
         set_err(err, err_len, "no path");
         return nullptr;
     }
-    db::Archive a;
-    std::string e;
-    if (!a.open(dat_path, &e)) {
-        set_err(err, err_len, e);
-        return nullptr;
+    std::vector<db::Archive> archives(static_cast<size_t>(count));
+    db::ArchiveSet set;
+    for (int32_t i = 0; i < count; ++i) {
+        std::string e;
+        if (!dat_paths[i]) {
+            set_err(err, err_len, "no path");
+            return nullptr;
+        }
+        if (!archives[size_t(i)].open(dat_paths[i], &e)) {
+            set_err(err, err_len, e);
+            return nullptr;
+        }
+        set.attach(&archives[size_t(i)]);
     }
     auto* r = new (std::nothrow) DBStageReport;
     if (!r) {
         set_err(err, err_len, "out of memory");
         return nullptr;
     }
-    r->summary = db::summarize_stage(a, stage);
+    r->summary = db::summarize_stage(set, stage);
     set_err(err, err_len, "");
     return r;
+}
+
+DBStageReport* db_stage_report_open(const char* dat_path, int32_t stage, char* err, int32_t err_len) {
+    return db_stage_report_open_set(&dat_path, 1, stage, err, err_len);
 }
 
 void db_stage_report_free(DBStageReport* r) { delete r; }

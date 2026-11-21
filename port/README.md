@@ -18,16 +18,22 @@ build/stageinfo "$D/daybreak00.dat" --stages
 ```
 The tool only reads the archive and never writes anything.
 
+Kai expansion: add `--overlay daybreak04.dat` (any form above). Overlays are searched before `daybreak00.dat`, in the order given, and the first archive that has a name wins. This is the same as `File::Open` in DaybreakDX.exe (`0x6510a0`, see `analysis/07-kai-archive-lookup.md`).
+```sh
+build/stageinfo "$D/daybreak00.dat" --overlay "$KAI/daybreak04.dat" 16
+```
+
 ## What it implements
 | file | what |
 |---|---|
-| `src/archive.*` | `daybreakNN.dat`: index rolling-XOR, per-entry XOR, case-insensitive lookup (see `analysis/02-archive-format.md`) |
+| `src/archive.*` | `daybreakNN.dat`: index rolling-XOR, per-entry XOR, case-insensitive lookup (see `analysis/02-archive-format.md`); `ArchiveSet` = ordered multi-archive search (Kai: 04 then 00) |
 | `src/inflate.*` | raw DEFLATE with preset dictionary (for MSZIP `.x`) |
 | `src/xfile.*` | DirectX `.x` `txt ` / `bin ` / `bzip` (and `tzip`) → generic object tree |
 | `src/stage.*` | shared analysis, following `Stage::Load` (0x405B50): slots `%02d.x`/`%02db.x`, mesh/triangle counts, and texture resolution exactly as the engine does it (dir + name, `bmp`→`cnv`, `_N` mips) |
 | `src/stageinfo.cpp` | CLI front end (env.dat, slots, three collision meshes, texture list) |
 | `src/daybreak_c.*` | plain C API over `stage.*` for Swift / other callers; names returned as raw cp932 bytes |
 | `tests/capi_test.c` | C caller of the API; checks the stage 01 expected values (PASS/FAIL) |
+| `tests/archive_set_test.cpp` | `make test`: writes two synthetic archives and checks lookup order, fallthrough, case-insensitivity, per-archive reads and `db_stage_report_open_set` |
 | `ios/` | SwiftUI test app over the C API; see `ios/README.md` (not yet built: needs a Mac) |
 
 ## Sample output (stage 01; abridged)
@@ -90,6 +96,21 @@ Not yet covered: an iOS build. iOS uses Apple's libiconv rather than glibc, so w
 
 ### Refactor for the iOS app (2026-11-20)
 The analysis code moved from `stageinfo.cpp` into `stage.cpp` so the CLI and the C API share it. Regression check: `build/stageinfo` output is **byte-identical** to the pre-refactor WSL output for all 12 stages. `build/capi_test` reports PASS on x86-64 and on aarch64 under QEMU (`make CXX=aarch64-linux-gnu-g++ CC=aarch64-linux-gnu-gcc BIN=build/arm64/stageinfo CAPI=build/arm64/capi_test build/arm64/capi_test`).
+
+### Kai overlay (2026-11-21)
+`ArchiveSet` (`src/archive.*`) searches attached archives in order. `Archive`/`ArchiveSet` share a `Source` interface, so the stage code and CLI take either. C API: `db_stage_report_open_set(paths, count, ...)`, paths in search order. `db_stage_report_open` is now a one-archive wrapper.
+
+Regression (WSL g++ 15.2.0, base `daybreak00.dat` only): `stageinfo` output is **byte-identical** to the previous build for all 12 stages, with and without `--tree`, plus `--stages` and `--x`. `capi_test` passes the retail and fixture expectations. `make test` passes all 16 checks, with no compiler warnings.
+
+Against Kai `daybreak04.dat` (4434 entries, copied out of the disc image to a scratch folder, never into the repo):
+
+| stage | base 00 only | Kai 04 → 00 |
+|---|---|---|
+| 06 | 8 meshes / 11 247 tris, no `b` set, 20 textures, **12 missing** | 40 / 23 961 (both sets), 38 textures, 0 missing, 0 errors |
+| 16 | absent | 40 / 23 961 (both sets), 38 textures, 0 missing, 0 errors |
+| 01–05, 11–15, 21 | — | unchanged |
+
+Stages 05 and 15 are missing 4 textures with or without the overlay. Not yet covered: the iOS app still opens one archive; BGM (`daybreak05`) and movies (`02`/`06`) are separate in Kai and are not part of this search.
 
 ## Port notes (what this means for a Metal renderer)
 See `analysis/05-stage-loading.md`. In short: stage geometry is plain world-space meshes with per-vertex colour, normals and UVs. Each slot has a fixed render recipe (opaque / multiplicative / alpha-tested + point-sampled / sky). `material.Power != 0` means additive. D3D is left-handed with CCW culling.

@@ -5,6 +5,7 @@
 //   stageinfo <daybreak00.dat> <stage> --tree     also print each frame hierarchy
 //   stageinfo <daybreak00.dat> --x <entry-name>   one .x file from the archive
 //   stageinfo <daybreak00.dat> --stages           list stage directories
+//   any form + --overlay <dat>                    search <dat> first (Kai: daybreak04.dat)
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -33,7 +34,7 @@ void print_stats(const char* label, const std::string& file, const XFile& x, con
                s.world.hi[0], s.world.hi[1], s.world.hi[2]);
 }
 
-int run_stage(const Archive& a, int stage, bool tree) {
+int run_stage(const Source& a, int stage, bool tree) {
     char dirbuf[64];
     snprintf(dirbuf, sizeof dirbuf, "data/stage%02d", stage);
     std::string dir = dirbuf;
@@ -110,7 +111,7 @@ int run_stage(const Archive& a, int stage, bool tree) {
     return 0;
 }
 
-int run_x(const Archive& a, const std::string& name) {
+int run_x(const Source& a, const std::string& name) {
     XFile x;
     std::string err;
     if (!load_x(a, name, x, &err)) {
@@ -129,29 +130,46 @@ int run_x(const Archive& a, const std::string& name) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    if (argc < 3) {
+    // Pull out "--overlay <dat>" pairs; the rest keep their positions.
+    std::vector<std::string> overlays, args;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--overlay") == 0 && i + 1 < argc)
+            overlays.push_back(argv[++i]);
+        else
+            args.push_back(argv[i]);
+    }
+    if (args.size() < 2) {
         fprintf(stderr,
                 "usage: %s <daybreak00.dat> <stage> [--tree]\n"
                 "       %s <daybreak00.dat> --x <entry-name>\n"
-                "       %s <daybreak00.dat> --stages\n",
+                "       %s <daybreak00.dat> --stages\n"
+                "  --overlay <dat>  search this archive before daybreak00.dat (repeatable, in order);\n"
+                "                   Kai: --overlay daybreak04.dat\n",
                 argv[0], argv[0], argv[0]);
         return 2;
     }
-    Archive a;
+    std::vector<std::string> paths = overlays;
+    paths.push_back(args[0]);
+    std::vector<Archive> archives(paths.size());
+    ArchiveSet set;
     std::string err;
-    if (!a.open(argv[1], &err)) {
-        fprintf(stderr, "%s\n", err.c_str());
-        return 1;
+    for (size_t i = 0; i < paths.size(); ++i) {
+        if (!archives[i].open(paths[i], &err)) {
+            fprintf(stderr, "%s\n", err.c_str());
+            return 1;
+        }
+        set.attach(&archives[i]);
     }
-    std::string arg = argv[2];
-    if (arg == "--x" && argc >= 4) return run_x(a, argv[3]);
+    const std::string& arg = args[1];
+    if (arg == "--x" && args.size() >= 3) return run_x(set, args[2]);
     if (arg == "--stages") {
         std::set<std::string> dirs;
-        for (const auto& e : a.entries())
-            if (e.name.rfind("data/stage", 0) == 0) dirs.insert(e.name.substr(0, e.name.find('/', 5)));
+        for (const auto& a : archives)
+            for (const auto& e : a.entries())
+                if (e.name.rfind("data/stage", 0) == 0) dirs.insert(e.name.substr(0, e.name.find('/', 5)));
         for (const auto& d : dirs) printf("%s\n", d.c_str());
         return 0;
     }
-    bool tree = argc >= 4 && std::string(argv[3]) == "--tree";
-    return run_stage(a, atoi(arg.c_str()), tree);
+    bool tree = args.size() >= 3 && args[2] == "--tree";
+    return run_stage(set, atoi(arg.c_str()), tree);
 }

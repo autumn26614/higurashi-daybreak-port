@@ -17,6 +17,10 @@ typedef struct DBStageReport DBStageReport;
 /* Opens the archive and summarises one stage. Returns NULL on failure and writes a
  * NUL-terminated message into err (if err_len > 0). */
 DBStageReport* db_stage_report_open(const char* dat_path, int32_t stage, char* err, int32_t err_len);
+/* Same, over several archives searched in the given order; the first that has a
+ * name wins. Kai: { "daybreak04.dat", "daybreak00.dat" }. */
+DBStageReport* db_stage_report_open_set(const char* const* dat_paths, int32_t count, int32_t stage, char* err,
+                                        int32_t err_len);
 void db_stage_report_free(DBStageReport* r);
 
 /* variant 0 = plain "%02d.x" set (game default), 1 = "%02db.x" set */

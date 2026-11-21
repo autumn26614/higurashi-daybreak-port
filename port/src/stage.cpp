@@ -175,7 +175,7 @@ Stats analyze_x(const XFile& x, bool want_tree) {
     return w.st;
 }
 
-bool load_x(const Archive& a, const std::string& name, XFile& x, std::string* err) {
+bool load_x(const Source& a, const std::string& name, XFile& x, std::string* err) {
     const Entry* e = a.find(name);
     if (!e) {
         *err = "missing";
@@ -185,7 +185,7 @@ bool load_x(const Archive& a, const std::string& name, XFile& x, std::string* er
     return a.read(*e, data, err) && parse_x(data, x, err);
 }
 
-TexStatus resolve_texture(const Archive& a, const std::string& dir, const std::string& tex) {
+TexStatus resolve_texture(const Source& a, const std::string& dir, const std::string& tex) {
     TexStatus t;
     std::string path = dir + tex;
     if (path.size() < 4) return t;
@@ -196,7 +196,7 @@ TexStatus resolve_texture(const Archive& a, const std::string& dir, const std::s
     return t;
 }
 
-StageSummary summarize_stage(const Archive& a, int stage) {
+StageSummary summarize_stage(const Source& a, int stage) {
     StageSummary s;
     s.stage = stage;
     char dirbuf[64];

@@ -38,7 +38,7 @@ struct Stats {
 Stats analyze_x(const XFile& x, bool want_tree);
 
 // Reads and parses one .x entry from the archive. err = "missing" if absent.
-bool load_x(const Archive& a, const std::string& name, XFile& x, std::string* err);
+bool load_x(const Source& a, const std::string& name, XFile& x, std::string* err);
 
 // Texture resolution as in the engine: _splitpath dir of the .x (0x5D6C20) + name
 // (0x5CD530), Image::Load swaps the last 3 chars for "cnv" (0x5E5D80), and the
@@ -48,7 +48,7 @@ struct TexStatus {
     bool found = false;
     int mips = 0;
 };
-TexStatus resolve_texture(const Archive& a, const std::string& dir, const std::string& tex);
+TexStatus resolve_texture(const Source& a, const std::string& dir, const std::string& tex);
 
 struct StageTexture {
     std::string name;  // raw cp932 name as written in the .x
@@ -66,6 +66,6 @@ struct StageSummary {
     std::vector<std::string> errors;  // per-file parse errors (missing files are not errors)
     std::vector<StageTexture> textures;
 };
-StageSummary summarize_stage(const Archive& a, int stage);
+StageSummary summarize_stage(const Source& a, int stage);
 
 }  // namespace db
