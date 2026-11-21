@@ -12,6 +12,7 @@
 # Belt and braces inside port/: no game archives or binaries, only the synthetic fixture.
 *.dat
 !/port/ios/Fixtures/fixture.dat
+!/port/ios/Fixtures/fixture-overlay.dat
 *.exe
 *.dll
 

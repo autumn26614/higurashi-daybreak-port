@@ -32,4 +32,24 @@ final class FixtureUITests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+
+    /// Kai mode: overlay fixture searched before the base fixture.
+    func testKaiOverlayIsSearchedFirst() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-useBundledFixture", "-kai"]
+        app.launch()
+
+        let row = element(containing: "1 meshes / 2 tris", in: app)
+        XCTAssertTrue(row.waitForExistence(timeout: 60), "overlay mesh (2 tris) never appeared on screen")
+        XCTAssertTrue(element(containing: "fixture-overlay.dat → fixture.dat", in: app).exists, "search order missing")
+        XCTAssertTrue(element(containing: "テスト草01.bmp", in: app).exists, "Japanese texture name missing")
+        XCTAssertFalse(app.staticTexts["error"].exists, "app reported an error")
+        let failures = app.descendants(matching: .any).matching(NSPredicate(format: "identifier ENDSWITH '.fail'"))
+        XCTAssertEqual(failures.count, 0, "a check on screen is marked ✗")
+
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "fixture-kai-results"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
 }

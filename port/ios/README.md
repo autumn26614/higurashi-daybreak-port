@@ -16,7 +16,7 @@ port/
 ```
 
 ## Status
-- **Not yet built or run on iOS.** No Mac, Xcode or Swift toolchain was available; the Swift files have not been compiled.
+- Built and tested in CI on an Intel macOS runner (iOS Simulator) against the synthetic fixtures; not yet run on a physical device or with the retail archives.
 - Verified on Linux (2026-11-20): the C++ part and the C API the app calls, via `tests/capi_test.c`, which makes the same calls in the same order. It reports the expected values below on x86-64 (WSL, g++ 15.2) and on aarch64 (cross g++ 15.2, run under qemu-aarch64 10.2.1). The first Japanese name's raw bytes decode to `くさむら06.bmp` with Python's cp932 codec.
 
 ## Build on a Mac
@@ -62,9 +62,21 @@ Every row should show a green ✓. Things worth noting if one doesn't:
 - **Japanese name shows hex or wrong glyphs:** the cp932 decode in `StageReport.swift` (`kCFStringEncodingDOSJapanese`) failed. That is the one piece that is Apple-only and untested.
 - **"Could not read the archive":** usually the file is still an iCloud placeholder, or it was picked without access. The app calls `startAccessingSecurityScopedResource()`.
 
+## Kai expansion mode
+Switch the segmented control to **Kai**, tap **Choose daybreak00.dat + daybreak04.dat**, and select both files in one go. `daybreak04.dat` comes from the Kai disc (`DATA/DAYBRE~1.DAT` in the disc's 8.3 directory, `daybreak04.dat` under its long-name Joliet names). The app identifies the files by name (case-insensitive) and searches **daybreak04 first, then daybreak00**, as DaybreakDX.exe does (`analysis/07-kai-archive-lookup.md`). The "Search order" row shows the order used. It reads stage 16, which exists only in daybreak04, so a correct result cannot come from the base archive alone:
+
+| row | expected value |
+|---|---|
+| Plain set / b set | **40 meshes / 23961 tris** each |
+| Textures: Referenced / Resolved | **38 / 38** |
+| Japanese filename: Texture | **アスファルト05.bmp** (cp932 `83 41 83 58 83 74 83 40 83 8b 83 67 30 35 2e 62 6d 70`) |
+| Japanese filename: Archive entry | **data/stage16/アスファルト05.cnv** (2 mip siblings) |
+
+The same C call (`db_stage_report_open_set`, 04 then 00) was checked on Linux against the real archives with `build/capi_test <daybreak00.dat> 16 kai <daybreak04.dat>`. It passes on x86-64 and on aarch64 under QEMU, and fails when daybreak00 is passed in place of daybreak04. The Swift side runs first in CI.
+
 ## CI: simulator test without game data
-`.github/workflows/ios-simulator.yml` (manual trigger only) runs on a `macos-15` runner:
-1. Regenerates `Fixtures/fixture.dat` with `port/tools/make_fixture.py` and requires it to match the committed copy byte for byte.
+`.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow file) runs on a `macos-15` runner:
+1. Regenerates `Fixtures/fixture.dat` and `fixture-overlay.dat` with `port/tools/make_fixture.py` and requires both to match the committed copies byte for byte.
 2. Builds `port/` natively with clang and runs `capi_test … fixture`.
 3. `xcodegen generate`, then `xcodebuild test` on the newest available iPhone simulator (`ci/pick_simulator.py`), unsigned (`CODE_SIGNING_ALLOWED=NO`).
 4. Uploads the `.xcresult` (including a screenshot of the results screen) and the build log as the `ios-simulator-results` artifact.
@@ -72,6 +84,10 @@ Every row should show a green ✓. Things worth noting if one doesn't:
 The fixture is synthetic (1,193 bytes): one text `.x` mesh with a single triangle, whose material references `テスト草01.bmp`, plus that `.cnv` texture, all stored with Shift-JIS names in the real archive format. Tests:
 - `Tests/Unit/StageReportTests.swift`: Swift → C API → C++ counts (1 mesh / 1 tri, 1 texture resolved) and the cp932 → `String` decode, compared code point by code point.
 - `Tests/UI/FixtureUITests.swift`: launches the app with `-useBundledFixture` and checks that `テスト草01.bmp`, `data/stage01/テスト草01.cnv` and `1 meshes / 1 tris` appear on screen with no ✗.
+
+A second fixture, `Fixtures/fixture-overlay.dat` (575 bytes, written by the same script), holds only `DATA/Stage01/00.X`. That is the same mesh with two triangles, under a differently cased name. It stands in for daybreak04:
+- Unit: `[overlay, base]` gives 1 mesh / 2 tris with the texture resolved from the base, and `[base, overlay]` gives 1 tri. The overlay alone resolves no texture. A missing archive or an empty list throws. `ArchiveOrder.kai` orders picked files 04 → 00 and rejects any other selection.
+- UI: `-useBundledFixture -kai` must show `1 meshes / 2 tris`, the search order `fixture-overlay.dat → fixture.dat` and no ✗.
 
 Verified locally: the fixture reads back with the Python reader (`analysis/tools/dbdat.py`), with `stageinfo`, and with `capi_test … fixture` (PASS on x86-64, and on aarch64 under QEMU). The Swift and Xcode parts run for the first time on the CI runner.
 

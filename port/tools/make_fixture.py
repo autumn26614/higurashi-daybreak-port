@@ -10,8 +10,13 @@ Expected reader results for stage 1: plain set 1 mesh / 1 tri, b set 0 / 0,
 1 texture referenced, 1 resolved, name "テスト草01.bmp",
 archive entry "data/stage01/テスト草01.cnv".
 
+Optional second output, an overlay archive for the Kai-style ordered lookup
+(overlay searched first, analysis/07-kai-archive-lookup.md):
+  DATA/Stage01/00.X               same mesh with two triangles (different case on purpose)
+With [overlay, base] stage 1 gives 1 mesh / 2 tris; the texture still resolves from the base.
+
 Archive format: analysis/02-archive-format.md. Output is deterministic.
-Usage: python3 make_fixture.py <out.dat>
+Usage: python3 make_fixture.py <out.dat> [<overlay-out.dat>]
 """
 import struct
 import sys
@@ -45,6 +50,15 @@ Mesh triangle {
 """ % TEXTURE
 
 
+# Same mesh with a fourth vertex and a second face, both using material 0.
+X_FILE_2 = (X_FILE
+            .replace(" 3;\n 0.0;0.0;0.0;,", " 4;\n 0.0;0.0;0.0;,")
+            .replace(" 0.0;100.0;0.0;;\n 1;\n 3;0,1,2;;",
+                     " 0.0;100.0;0.0;,\n 100.0;100.0;0.0;;\n 2;\n 3;0,1,2;,\n 3;1,3,2;;")
+            .replace("  1;\n  0;;", "  2;\n  0,\n  0;;"))
+assert X_FILE_2 != X_FILE and X_FILE_2.count("3;1,3,2;;") == 1
+
+
 def cnv_image():
     # u8 bpp, u32 width, u32 row length, u32 height, u32 packed_size(0), then BGRA pixels
     pixels = bytes([0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255])
@@ -73,7 +87,7 @@ def build(entries):
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         print(__doc__)
         return 2
     # cp932 bytes of the texture name must not contain 0x5C ('\\') or 0x22 ('"').
@@ -85,6 +99,9 @@ def main():
     ]
     with open(sys.argv[1], "wb") as f:
         f.write(build(entries))
+    if len(sys.argv) == 3:
+        with open(sys.argv[2], "wb") as f:
+            f.write(build([("DATA/Stage01/00.X", X_FILE_2.encode("cp932"))]))
     return 0
 
 

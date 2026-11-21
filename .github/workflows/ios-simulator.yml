@@ -27,8 +27,9 @@ jobs:
 
       - name: Fixture is reproducible from port/tools/make_fixture.py
         run: |
-          python3 port/tools/make_fixture.py "$RUNNER_TEMP/fixture.dat"
+          python3 port/tools/make_fixture.py "$RUNNER_TEMP/fixture.dat" "$RUNNER_TEMP/fixture-overlay.dat"
           cmp port/ios/Fixtures/fixture.dat "$RUNNER_TEMP/fixture.dat"
+          cmp port/ios/Fixtures/fixture-overlay.dat "$RUNNER_TEMP/fixture-overlay.dat"
 
       - name: C API check on macOS (clang, same fixture)
         working-directory: port

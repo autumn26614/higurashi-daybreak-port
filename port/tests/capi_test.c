@@ -1,7 +1,9 @@
 /* Exercises the C API exactly as the iOS app does, from plain C.
  * Usage: capi_test <archive.dat> [stage] [retail|fixture]
+ *        capi_test <daybreak00.dat> 16 kai <daybreak04.dat>
  *   retail  (default): expectations for the real daybreak00.dat, stage 01
  *   fixture          : expectations for port/ios/Fixtures/fixture.dat (port/tools/make_fixture.py)
+ *   kai              : daybreak04 searched before daybreak00 (db_stage_report_open_set), stage 16
  * The first Japanese name is printed as hex so the check does not depend on the
  * terminal's encoding. Exit status 0 = PASS. */
 #include <stdio.h>
@@ -21,6 +23,9 @@ static const struct expect RETAIL = {27, 26, 85, 85, 3, 28372, 28148,
                                      "\x82\xad\x82\xb3\x82\xde\x82\xe7" "06.bmp"};
 /* テスト草01.bmp */
 static const struct expect FIXTURE = {1, 0, 1, 1, 0, 1, 0, "\x83\x65\x83\x58\x83\x67\x91\x90" "01.bmp"};
+/* Kai, daybreak04 then daybreak00, stage 16 (Kai-only): アスファルト05.bmp */
+static const struct expect KAI = {40, 40, 38, 38, 1, 23961, 23961,
+                                  "\x83\x41\x83\x58\x83\x74\x83\x40\x83\x8b\x83\x67" "05.bmp"};
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -28,9 +33,19 @@ int main(int argc, char** argv) {
         return 2;
     }
     int stage = argc > 2 ? atoi(argv[2]) : 1;
-    const struct expect* ex = (argc > 3 && strcmp(argv[3], "fixture") == 0) ? &FIXTURE : &RETAIL;
+    const char* mode = argc > 3 ? argv[3] : "retail";
+    int kai = strcmp(mode, "kai") == 0;
+    if (kai && argc < 5) {
+        fprintf(stderr, "kai mode: %s <daybreak00.dat> 16 kai <daybreak04.dat>\n", argv[0]);
+        return 2;
+    }
+    const struct expect* ex = kai ? &KAI : strcmp(mode, "fixture") == 0 ? &FIXTURE : &RETAIL;
+    int checked_stage = kai ? 16 : 1;
     char err[256];
-    DBStageReport* r = db_stage_report_open(argv[1], stage, err, sizeof err);
+    /* Kai search order, as the app passes it: daybreak04 first, then daybreak00. */
+    const char* paths[2] = {kai ? argv[4] : argv[1], argv[1]};
+    DBStageReport* r = kai ? db_stage_report_open_set(paths, 2, stage, err, sizeof err)
+                           : db_stage_report_open(argv[1], stage, err, sizeof err);
     if (!r) {
         fprintf(stderr, "open failed: %s\n", err);
         return 1;
@@ -58,9 +73,9 @@ int main(int argc, char** argv) {
                db_stage_texture_mips(r, first_jp));
         name_ok = (size_t)len == strlen(ex->jp_cp932) && memcmp(s, ex->jp_cp932, (size_t)len) == 0;
     }
-    int pass = stage != 1 || (m0 == ex->m0 && t0 == ex->t0 && m1 == ex->m1 && t1 == ex->t1 && nt == ex->textures &&
+    int pass = stage != checked_stage || (m0 == ex->m0 && t0 == ex->t0 && m1 == ex->m1 && t1 == ex->t1 && nt == ex->textures &&
                               ok == ex->resolved && first_jp == ex->first_jp && name_ok);
-    printf("%s (%s expectations)\n", pass ? "PASS" : "FAIL", ex == &FIXTURE ? "fixture" : "retail");
+    printf("%s (%s expectations)\n", pass ? "PASS" : "FAIL", mode);
     db_stage_report_free(r);
     return pass ? 0 : 1;
 }
