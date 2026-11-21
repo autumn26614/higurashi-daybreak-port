@@ -1,6 +1,8 @@
 import XCTest
 
 /// Launches the app with the bundled fixture and checks what is actually on screen.
+/// SwiftUI's List only creates the rows that are visible, so the checks go top to
+/// bottom and scroll down for rows below the fold.
 final class FixtureUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -12,25 +14,44 @@ final class FixtureUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
+    /// Swipes up until an element containing `text` exists, or gives up after `swipes`.
+    private func scrollTo(_ text: String, in app: XCUIApplication, swipes: Int = 8) -> Bool {
+        let target = element(containing: text, in: app)
+        for _ in 0..<swipes {
+            if target.exists { return true }
+            app.swipeUp()
+        }
+        return target.exists
+    }
+
+    /// No check marked ✗ among the rows currently on screen.
+    private func assertNoFailedChecks(_ app: XCUIApplication, _ where_: String) {
+        let failures = app.descendants(matching: .any).matching(NSPredicate(format: "identifier ENDSWITH '.fail'"))
+        XCTAssertEqual(failures.count, 0, "a check is marked ✗ (\(where_))")
+    }
+
+    private func screenshot(_ app: XCUIApplication, _ name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
     func testFixtureIsReadAndJapaneseNameIsDisplayed() {
         let app = XCUIApplication()
         app.launchArguments = ["-useBundledFixture"]
         app.launch()
 
-        let name = element(containing: "テスト草01.bmp", in: app)
-        XCTAssertTrue(name.waitForExistence(timeout: 60), "Japanese texture name never appeared on screen")
-        XCTAssertTrue(element(containing: "data/stage01/テスト草01.cnv", in: app).exists, "archive entry name missing")
-        XCTAssertTrue(element(containing: "1 meshes / 1 tris", in: app).exists, "mesh/triangle row missing")
+        let row = element(containing: "1 meshes / 1 tris", in: app)
+        XCTAssertTrue(row.waitForExistence(timeout: 60), "mesh/triangle row never appeared on screen")
         XCTAssertFalse(app.staticTexts["error"].exists, "app reported an error")
+        assertNoFailedChecks(app, "top of list")
+        screenshot(app, "fixture-results")
 
-        // If SwiftUI keeps the per-value identifiers, also require that no check is red.
-        let failures = app.descendants(matching: .any).matching(NSPredicate(format: "identifier ENDSWITH '.fail'"))
-        XCTAssertEqual(failures.count, 0, "a check on screen is marked ✗")
-
-        let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "fixture-results"
-        shot.lifetime = .keepAlways
-        add(shot)
+        XCTAssertTrue(scrollTo("data/stage01/テスト草01.cnv", in: app), "archive entry name missing")
+        XCTAssertTrue(element(containing: "テスト草01.bmp", in: app).exists, "Japanese texture name missing")
+        assertNoFailedChecks(app, "after scrolling")
+        screenshot(app, "fixture-results-scrolled")
     }
 
     /// Kai mode: overlay fixture searched before the base fixture.
@@ -42,14 +63,13 @@ final class FixtureUITests: XCTestCase {
         let row = element(containing: "1 meshes / 2 tris", in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 60), "overlay mesh (2 tris) never appeared on screen")
         XCTAssertTrue(element(containing: "fixture-overlay.dat → fixture.dat", in: app).exists, "search order missing")
-        XCTAssertTrue(element(containing: "テスト草01.bmp", in: app).exists, "Japanese texture name missing")
         XCTAssertFalse(app.staticTexts["error"].exists, "app reported an error")
-        let failures = app.descendants(matching: .any).matching(NSPredicate(format: "identifier ENDSWITH '.fail'"))
-        XCTAssertEqual(failures.count, 0, "a check on screen is marked ✗")
+        assertNoFailedChecks(app, "top of list")
+        screenshot(app, "fixture-kai-results")
 
-        let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "fixture-kai-results"
-        shot.lifetime = .keepAlways
-        add(shot)
+        XCTAssertTrue(scrollTo("data/stage01/テスト草01.cnv", in: app), "archive entry name missing")
+        XCTAssertTrue(element(containing: "テスト草01.bmp", in: app).exists, "Japanese texture name missing")
+        assertNoFailedChecks(app, "after scrolling")
+        screenshot(app, "fixture-kai-results-scrolled")
     }
 }
