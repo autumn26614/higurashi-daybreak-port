@@ -249,6 +249,12 @@ int main(int argc, char** argv) {
               "character: slot, x when the flag is set, slots > 1 mirrored");
         const st::Page& p1 = s.pages[1];
         check(p1.voice.empty() && p1.scene.slots[3].x == -280 && p1.sleep_ms == 500, "move ends at its x; sleep");
+        check(p1.scene.slots[3].move_from == 0 && p1.scene.slots[3].move_frames == 30 &&
+                  st::slot_x(p1.scene.slots[3], 15) == -140 && st::slot_x(p1.scene.slots[3], 0) == 0 &&
+                  st::slot_x(p1.scene.slots[3], 99) == -280 && st::settle_frames(p1.scene) == 30,
+              "move slides linearly over its frames");
+        check(s.pages[2].scene.slots[3].move_frames == 0 && st::settle_frames(s.pages[2].scene) == 0,
+              "a move is finished by the next page");
         check(p1.scene.order[5] == 0 && p1.scene.order[0] == 1, "front moves the slot to the end of the draw order");
         check(s.pages[2].scene.slots[2].image.empty(), "an empty file name clears the slot");
         check(!st::parse("VOICE W01-01-1.wav\r\nHello\r\n").has_commands, "win quote: no commands");

@@ -52,6 +52,8 @@ struct TalkView: View {
     @State private var background: [UInt8]?
     @State private var player = SoundPlayer()
     @State private var musicPlayer = SoundPlayer()
+    @State private var pageFrame = 0  // frames since the page opened
+    @State private var settle = 0     // frames its portrait moves take
     @State private var playingMusic: [UInt8] = []
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
 
@@ -96,6 +98,12 @@ struct TalkView: View {
         .onDisappear { player.stop(); musicPlayer.stop() }
         .onReceive(tick) { _ in
             guard !pages.isEmpty else { return }
+            // Portraits sliding in (story "move" commands): one background per frame.
+            if pageFrame < settle {
+                pageFrame += 1
+                background = book.storyBackground(page: pages[index].index, frame: pageFrame)
+                redraw()
+            }
             if counter < end {
                 counter += 1
                 if counter >= 0 { redraw() }
@@ -137,7 +145,9 @@ extension TalkView {
     fileprivate func openPage() {
         guard index < pages.count else { return }
         let page = pages[index]
-        background = book.storyBackground(page: page.index)
+        pageFrame = 0
+        settle = book.settleFrames(page: page.index)
+        background = book.storyBackground(page: page.index, frame: 0)
         if page.bgm != playingMusic {
             playingMusic = page.bgm
             if let m = book.music(page.bgm) { musicPlayer.play(m) } else { musicPlayer.stop() }

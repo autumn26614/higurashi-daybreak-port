@@ -214,8 +214,12 @@ const char* db_story_page_text(const DBStory* s, int32_t page, int32_t* len);  /
 const char* db_story_page_voice(const DBStory* s, int32_t page, int32_t* len); /* entry or "" */
 const char* db_story_page_bgm(const DBStory* s, int32_t page, int32_t* len);   /* entry or "" */
 int32_t db_story_page_sleep_ms(const DBStory* s, int32_t page);
-/* The page's 800x600 RGBA background, ready for db_talk_compose. */
+/* The page's 800x600 RGBA background, ready for db_talk_compose, once its portrait moves
+ * have finished. _at: `frame` frames after the page opened (portraits mid-slide). */
 int32_t db_story_background(DBArchives* a, const DBStory* s, int32_t page, uint8_t* out_rgba);
+int32_t db_story_background_at(DBArchives* a, DBStory* s, int32_t page, int32_t frame, uint8_t* out_rgba);
+/* Frames until the page's portrait moves finish (0: nothing moves). */
+int32_t db_story_page_settle_frames(const DBStory* s, int32_t page);
 
 /* ---- Identifying a picked file -----------------------------------------------------
  * Roles, by entry count plus a known member (src/identify.h). */

@@ -67,7 +67,12 @@ Story parse(const std::string& all) {
             st.has_commands = true;
             const auto f = split_commas(rest);
             const int slot = to_int(f[0]);
-            if (slot >= 0 && slot <= 5 && f.size() > 1) scene.slots[slot].x = float(to_int(f[1]));
+            if (slot >= 0 && slot <= 5 && f.size() > 1) {
+                Slot& sl = scene.slots[slot];
+                sl.move_from = sl.x;
+                sl.x = float(to_int(f[1]));
+                sl.move_frames = f.size() > 2 ? std::max(0, to_int(f[2])) : 0;
+            }
         } else if (starts(line, "front ", &rest)) {
             st.has_commands = true;
             const int slot = to_int(rest);
@@ -86,6 +91,7 @@ Story parse(const std::string& all) {
             p.scene = scene;
             p.sleep_ms = pending_sleep;
             st.pages.push_back(std::move(p));
+            for (auto& sl : scene.slots) sl.move_frames = 0;  // finished by the next page
             pending_voice.clear();
             pending_sleep = 0;
         }
@@ -99,9 +105,22 @@ Story parse(const std::string& all) {
 namespace db {
 namespace story {
 
+float slot_x(const Slot& s, int frame) {
+    if (s.move_frames <= 0 || frame >= s.move_frames) return s.x;
+    const float t = float(std::max(0, frame)) / float(s.move_frames);
+    return s.move_from + (s.x - s.move_from) * t;
+}
+
+int settle_frames(const Scene& s) {
+    int n = 0;
+    for (const auto& sl : s.slots)
+        if (!sl.image.empty()) n = std::max(n, sl.move_frames);
+    return n;
+}
+
 std::vector<uint8_t> compose(const Scene& s,
                              bool (*load_rgba)(void*, const std::string&, std::vector<uint8_t>&, int&, int&),
-                             void* ctx) {
+                             void* ctx, int frame) {
     const int W = 800, H = 600;
     std::vector<uint8_t> out(size_t(W) * H * 4, 0);
     for (size_t i = 3; i < out.size(); i += 4) out[i] = 255;
@@ -127,7 +146,7 @@ std::vector<uint8_t> compose(const Scene& s,
     draw(s.background, 0, 0, false);
     for (int k = 0; k < 6; k++) {
         const Slot& sl = s.slots[s.order[k]];
-        draw(sl.image, int(sl.x) - 256, 88, sl.mirrored);
+        draw(sl.image, int(slot_x(sl, frame)) - 256, 88, sl.mirrored);
     }
     return out;
 }

@@ -27,11 +27,14 @@ namespace story {
 
 struct Slot {
     std::string image;  // archive entry (".bmp" as written; map with cnv_name), "" = empty
-    float x = 0;        // centre
+    float x = 0;        // centre (where a move ends)
     bool mirrored = false;
+    float move_from = 0;  // a move started by this page's commands: from here to x
+    int move_frames = 0;  // over this many frames (0 = no move); linear (inferred: the
+                          // animator at talk scene +0x6C4 queues (target, frames) entries)
 };
 
-// Scene state when a page is shown. Moves are applied as finished (their end position).
+// Scene state when a page is shown; moves started for this page are in each slot.
 struct Scene {
     std::string background;  // archive entry or ""
     std::string bgm;         // archive entry (data/bgm/<file>) or ""
@@ -60,11 +63,19 @@ namespace db {
 namespace story {
 
 // 800x600 RGBA: background at (0,0), then each slot's 512x512 image at (x - 256, 88) in
-// draw order, mirrored for slots > 1. `load_rgba` decodes an image entry (.bmp -> .cnv).
+// draw order, mirrored for slots > 1, `frame` frames after the page opened (moves in
+// progress are interpolated; pass a large frame for the settled scene). `load_rgba`
+// decodes an image entry (.bmp -> .cnv).
 std::vector<uint8_t> compose(const Scene& s,
                              bool (*load_rgba)(void* ctx, const std::string& name, std::vector<uint8_t>& rgba, int& w,
                                                int& h),
-                             void* ctx);
+                             void* ctx, int frame = 1 << 30);
+
+// The slot's x `frame` frames after the page opened.
+float slot_x(const Slot& s, int frame);
+
+// Frames until every move of the scene has finished (0 if none).
+int settle_frames(const Scene& s);
 
 }  // namespace story
 }  // namespace db

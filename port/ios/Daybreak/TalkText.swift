@@ -141,11 +141,19 @@ final class TalkBook {
         }
     }
 
-    /// The page's 800x600 background (scene and portraits) from the open script.
-    func storyBackground(page: Int) -> [UInt8]? {
+    /// The page's 800x600 background (scene and portraits) from the open script, `frame`
+    /// frames after the page opened (portraits slide in while their moves run).
+    func storyBackground(page: Int, frame: Int = 1 << 30) -> [UInt8]? {
         guard let story else { return nil }
         var out = [UInt8](repeating: 0, count: Int(DB_TALK_WIDTH) * Int(DB_TALK_HEIGHT) * 4)
-        return db_story_background(archives, story, Int32(page), &out) == 1 ? out : nil
+        return db_story_background_at(archives, story, Int32(page), Int32(min(frame, Int(Int32.max))), &out) == 1
+            ? out : nil
+    }
+
+    /// Frames until the page's portrait moves have finished (0: none).
+    func settleFrames(page: Int) -> Int {
+        guard let story else { return 0 }
+        return Int(db_story_page_settle_frames(story, Int32(page)))
     }
 
     /// The music entry decoded (music loops at its .sfl points).

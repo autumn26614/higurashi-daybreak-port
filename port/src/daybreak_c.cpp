@@ -58,6 +58,17 @@ struct DBStageGeometry {
 struct DBStory {
     std::string name;
     db::story::Story story;
+    struct Img {
+        std::vector<uint8_t> rgba;
+        int w = 0, h = 0;
+        bool ok = false;
+    };
+    std::map<std::string, Img> images;  // decoded once: backgrounds are redrawn per frame while moving
+};
+
+struct StoryLoad {
+    DBArchives* a;
+    DBStory* s;
 };
 
 struct DBTalk {
@@ -703,6 +714,35 @@ const char* db_story_page_bgm(const DBStory* s, int32_t i, int32_t* len) {
 int32_t db_story_page_sleep_ms(const DBStory* s, int32_t i) {
     const auto* p = story_page(s, i);
     return p ? p->sleep_ms : 0;
+}
+
+int32_t db_story_page_settle_frames(const DBStory* s, int32_t i) {
+    const auto* p = story_page(s, i);
+    return p ? db::story::settle_frames(p->scene) : 0;
+}
+
+int32_t db_story_background_at(DBArchives* a, DBStory* s, int32_t i, int32_t frame, uint8_t* out) {
+    const auto* p = story_page(s, i);
+    if (!a || !p || !out) return 0;
+    if (!s->story.has_commands) return db_story_background(a, s, i, out);
+    auto cached = [](void* ctx, const std::string& name, std::vector<uint8_t>& rgba, int& w, int& h) {
+        auto* l = static_cast<StoryLoad*>(ctx);
+        auto it = l->s->images.find(name);
+        if (it == l->s->images.end()) {
+            DBStory::Img img;
+            img.ok = load_rgba(l->a, name, img.rgba, img.w, img.h);
+            it = l->s->images.emplace(name, std::move(img)).first;
+        }
+        if (!it->second.ok) return false;
+        rgba = it->second.rgba;
+        w = it->second.w;
+        h = it->second.h;
+        return true;
+    };
+    StoryLoad ctx{a, s};
+    const std::vector<uint8_t> bg = db::story::compose(p->scene, cached, &ctx, frame);
+    memcpy(out, bg.data(), bg.size());
+    return 1;
 }
 
 int32_t db_story_background(DBArchives* a, const DBStory* s, int32_t i, uint8_t* out) {
