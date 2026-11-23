@@ -16,6 +16,9 @@
 #include "recipe.h"
 #include "identify.h"
 #include "scenario.h"
+#include "talk.h"
+
+#include <map>
 
 #include <cstdio>
 #include "stage.h"
@@ -37,6 +40,12 @@ struct DBStageGeometry {
     db::StageGeometry geo;
 };
 
+struct DBTalk {
+    db::talk::Params params;
+    db::talk::Layout layout;
+    std::map<uint16_t, db::talk::Mask> masks;
+};
+
 struct DBScript {
     db::scn::Script script;
     std::vector<db::scn::Page> pages;  // point into script.lines
@@ -55,6 +64,22 @@ void set_err(char* err, int32_t err_len, const std::string& msg) {
 }
 bool valid(const DBStageReport* r, int32_t i) {
     return r && i >= 0 && size_t(i) < r->summary.textures.size();
+}
+db::Camera to_camera(const DBCamera& c) {
+    db::Camera k;
+    for (int i = 0; i < 3; i++) k.eye[i] = c.eye[i], k.target[i] = c.target[i];
+    k.fov_y = c.fov_y;
+    k.z_near = c.z_near;
+    k.z_far = c.z_far;
+    return k;
+}
+const db::scn::Page* page_at(const DBScript* s, int32_t p) {
+    return s && p >= 0 && size_t(p) < s->pages.size() ? &s->pages[size_t(p)] : nullptr;
+}
+const db::scn::Token* token_at(const DBScript* s, int32_t p, int32_t t) {
+    const db::scn::Page* pg = page_at(s, p);
+    if (!pg || t < 0 || size_t(t) >= pg->text->tokens.size()) return nullptr;
+    return &pg->text->tokens[size_t(t)];
 }
 }  // namespace
 
@@ -286,16 +311,6 @@ int32_t db_geometry_default_camera(const DBStageGeometry* g, DBCamera* out) {
     return 1;
 }
 
-namespace {
-db::Camera to_camera(const DBCamera& c) {
-    db::Camera k;
-    for (int i = 0; i < 3; i++) k.eye[i] = c.eye[i], k.target[i] = c.target[i];
-    k.fov_y = c.fov_y;
-    k.z_near = c.z_near;
-    k.z_far = c.z_far;
-    return k;
-}
-}  // namespace
 
 void db_camera_matrices(const DBCamera* c, float aspect, float view[16], float proj[16]) {
     if (!c) return;
@@ -384,16 +399,6 @@ void db_script_free(DBScript* s) { delete s; }
 
 int32_t db_script_page_count(const DBScript* s) { return s ? int32_t(s->pages.size()) : 0; }
 
-namespace {
-const db::scn::Page* page_at(const DBScript* s, int32_t p) {
-    return s && p >= 0 && size_t(p) < s->pages.size() ? &s->pages[size_t(p)] : nullptr;
-}
-const db::scn::Token* token_at(const DBScript* s, int32_t p, int32_t t) {
-    const db::scn::Page* pg = page_at(s, p);
-    if (!pg || t < 0 || size_t(t) >= pg->text->tokens.size()) return nullptr;
-    return &pg->text->tokens[size_t(t)];
-}
-}  // namespace
 
 const char* db_script_page_voice(const DBScript* s, int32_t page, int32_t* len) {
     const db::scn::Page* p = page_at(s, page);
@@ -422,6 +427,57 @@ const char* db_script_token_bytes(const DBScript* s, int32_t page, int32_t tok, 
 uint32_t db_script_token_rgb(const DBScript* s, int32_t page, int32_t tok) {
     const db::scn::Token* t = token_at(s, page, tok);
     return t ? (uint32_t(t->r) << 16 | uint32_t(t->g) << 8 | t->b) : 0;
+}
+
+DBTalk* db_talk_layout(const char* text, int32_t len) {
+    if (len < 0 || (!text && len > 0)) return nullptr;
+    auto* t = new (std::nothrow) DBTalk;
+    if (!t) return nullptr;
+    t->layout = db::talk::layout(len > 0 ? std::string(text, size_t(len)) : std::string(), t->params);
+    return t;
+}
+
+void db_talk_free(DBTalk* t) { delete t; }
+int32_t db_talk_glyph_count(const DBTalk* t) { return t ? int32_t(t->layout.glyphs.size()) : 0; }
+int32_t db_talk_text_bytes(const DBTalk* t) { return t ? int32_t(t->layout.text_bytes) : 0; }
+int32_t db_talk_lines(const DBTalk* t) { return t ? t->layout.lines : 0; }
+int32_t db_talk_stopped(const DBTalk* t) { return t ? t->layout.stopped : 0; }
+
+int32_t db_talk_glyph(const DBTalk* t, int32_t i, uint32_t* code, int32_t* bytes, int32_t* x, int32_t* y) {
+    if (!t || i < 0 || size_t(i) >= t->layout.glyphs.size()) return 0;
+    const db::talk::Glyph& g = t->layout.glyphs[size_t(i)];
+    if (code) *code = g.code;
+    if (bytes) *bytes = g.bytes;
+    if (x) *x = g.x;
+    if (y) *y = g.y;
+    return 1;
+}
+
+int32_t db_talk_set_mask(DBTalk* t, uint32_t code, const uint8_t* coverage, int32_t w, int32_t h, int32_t left,
+                         int32_t top) {
+    if (!t || w < 0 || h < 0 || w > 256 || h > 256 || (!coverage && w * h > 0)) return 0;
+    db::talk::Mask m;
+    m.width = w;
+    m.height = h;
+    m.left = left;
+    m.top = top;
+    m.coverage.assign(coverage, coverage + size_t(w) * size_t(h));
+    t->masks[uint16_t(code)] = std::move(m);
+    return 1;
+}
+
+int32_t db_talk_compose(DBTalk* t, const uint8_t* background, const uint8_t* window, int32_t ww, int32_t wh,
+                        int32_t reveal, int32_t arrow, uint8_t* out) {
+    if (!t || !out || ww < 0 || wh < 0) return 0;
+    const size_t n = size_t(DB_TALK_WIDTH) * DB_TALK_HEIGHT * 4;
+    std::vector<uint8_t> bg = background ? std::vector<uint8_t>(background, background + n) : std::vector<uint8_t>();
+    std::vector<uint8_t> win = window ? std::vector<uint8_t>(window, window + size_t(ww) * size_t(wh) * 4)
+                                      : std::vector<uint8_t>();
+    const std::vector<uint8_t> text = db::talk::draw_text(t->layout, t->masks, t->params);
+    const std::vector<uint8_t> frame =
+        db::talk::compose(bg, win, ww, wh, text, t->params, reveal < 0 ? 0 : size_t(reveal), arrow != 0);
+    memcpy(out, frame.data(), n);
+    return 1;
 }
 
 int32_t db_identify_archive(const char* path, DBArchiveInfo* out, char* err, int32_t err_len) {

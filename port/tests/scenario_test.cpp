@@ -13,6 +13,7 @@
 #include "../src/archive.h"
 #include "../src/daybreak_c.h"
 #include "../src/scenario.h"
+#include "../src/talk.h"
 
 using namespace db;
 using namespace db::scn;
@@ -70,6 +71,33 @@ int check_archive(const char* path, const char* path2) {
                 printf("  %s\n    %s\n    %s\n", e.name.c_str(), skeleton(p1).c_str(), skeleton(p2).c_str());
             skel_diff++;
         }
+    }
+    // Talk-box layout of every page of the first archive's scripts.
+    {
+        int pages_n = 0, stopped = 0, hidden = 0, max_lines = 0, wrapped = 0;
+        for (const Entry& e : a.entries()) {
+            const std::string low = lower_ascii(e.name);
+            if (low.rfind("data/scenario/", 0) != 0 || low.size() < 4 || low.compare(low.size() - 4, 4, ".txt") != 0)
+                continue;
+            if (!a.read(e, d1, &err)) return 1;
+            const Script sc = parse(std::string(d1.begin(), d1.end()));
+            for (const Page& pg : pages(sc)) {
+                pages_n++;
+                const talk::Layout l = talk::layout(pg.text->raw);
+                int newlines = 0;
+                for (const Token& t : pg.text->tokens) newlines += t.kind == TokKind::Newline;
+                stopped += l.stopped;
+                wrapped += l.lines > newlines + 1;
+                max_lines = std::max(max_lines, l.lines);
+                for (const talk::Glyph& g : l.glyphs)
+                    if (g.y >= 1 + 34 * 4) {  // row 5: beyond the 128 revealed cells
+                        hidden++;
+                        break;
+                    }
+            }
+        }
+        printf("talk box: %d pages, max %d lines, %d auto-wrapped, %d run out of lines, %d need a 5th row\n", pages_n,
+               max_lines, wrapped, stopped, hidden);
     }
     printf("%d scripts, %d round-trip failures, %d unknown commands\n", scripts, bad_trip, unknown);
     if (path2) printf("%d differ: %d keep the command skeleton, %d do not\n", differ, same_skeleton, skel_diff);
@@ -142,6 +170,62 @@ int main(int argc, char** argv) {
     const std::string broken = "VOICE a.wav\r\nAh\\nI see\r\n";
     check(skeleton(parse(jp)) == skeleton(parse(en)), "translation keeps the skeleton");
     check(skeleton(parse(jp)) != skeleton(parse(broken)), "a lost colour changes the skeleton");
+
+    // Talk box layout (src/talk.h): fixed 12/24 px cells from x = 1, y = 1, lines of 34 px.
+    {
+        using namespace db::talk;
+        Layout l = layout("Hi you");
+        check(l.glyphs.size() == 5 && l.glyphs[0].x == 1 && l.glyphs[1].x == 13 && l.glyphs[2].x == 37 &&
+                  l.glyphs[0].y == 1 && l.text_bytes == 6,
+              "ASCII advances 12 px; a space advances without a glyph");
+        l = layout("\x82\xa0" "a\x81\x40" "b");
+        check(l.glyphs.size() == 3 && l.glyphs[0].code == 0x82a0 && l.glyphs[0].bytes == 2 && l.glyphs[1].x == 25 &&
+                  l.glyphs[2].x == 61,
+              "two-byte characters advance 24 px; ideographic space only advances");
+        l = layout("a\\nb\\cFF0000c\\ed");
+        check(l.glyphs.size() == 4 && l.glyphs[1].x == 1 && l.glyphs[1].y == 35 && l.lines == 2, "\\n starts a line");
+        check(l.glyphs[2].rgb[0] == 255 && l.glyphs[2].rgb[1] == 0 && l.glyphs[3].rgb[1] == 255, "\\c colour, \\e reset");
+        l = layout(std::string(64, 'a'));
+        check(l.glyphs.size() == 64 && l.glyphs[62].x == 1 + 62 * 12 && l.glyphs[63].x == 1 && l.glyphs[63].y == 35,
+              "wraps when fewer than 12 px remain of 760: 63 characters per line");
+        l = layout("1\\n2\\n3\\n4\\n5\\n6");
+        check(l.stopped && l.glyphs.size() == 5 && l.lines == 5, "the fifth line break stops the text (max 5 lines)");
+        l = layout(std::string("ab\0cd", 5));
+        check(l.text_bytes == 2 && l.glyphs.size() == 2, "text ends at NUL (strlen)");
+
+        Params p;
+        const uint8_t red[3] = {255, 0, 0};
+        uint8_t px[4];
+        glyph_pixel(16, 0, red, p, px);
+        check(px[3] == 227 && px[0] == 255 && px[1] == 255, "full coverage: alpha (14*16)|3 = 227; top row white");
+        glyph_pixel(1, 24, red, p, px);
+        check(px[3] == 15 && px[0] == 255 && px[1] == 0 && px[2] == 0, "coverage 1: alpha 15; bottom row = colour");
+        glyph_pixel(8, 12, red, p, px);
+        check(px[1] == 255 - (12 * 255) / 24, "gradient halfway");
+        glyph_pixel(0, 0, red, p, px);
+        check(px[3] == 0, "coverage 0 is transparent");
+        p.gradient = false;
+        const uint8_t mixed[3] = {10, 20, 30};
+        glyph_pixel(16, 5, mixed, p, px);
+        check(px[0] == 10 && px[1] == 10 && px[2] == 30, "flat path reads R twice, as the game");
+
+        // Composition: a solid 12x24 glyph mask, white opaque window.
+        Params q;
+        Layout one = layout("A");
+        Mask m;
+        m.width = 12, m.height = 24, m.left = 0, m.top = 0;
+        m.coverage.assign(12 * 24, 16);
+        const std::vector<uint8_t> text = draw_text(one, {{uint16_t('A'), m}}, q);
+        check(text[size_t((1 * q.bitmap_width + 1) * 4 + 3)] == 227 && text[3] == 0, "glyph drawn at its cell");
+        const std::vector<uint8_t> window(780 * 200 * 4, 255);
+        std::vector<uint8_t> f = compose({}, window, 780, 200, text, q, 1, false);
+        auto at = [&](int x, int y, int c) { return int(f[size_t((y * Frame::kWidth + x) * 4 + c)]); };
+        check(at(5, 5, 0) == 0 && at(15, 445, 0) == 128, "black background, window at (10,440) at 50%");
+        check(at(21, 451, 0) > 235, "text pixel (alpha 227) at (20 + 1, 450 + 1)");
+        check(at(33, 452 + 20, 0) < 128, "shadow at +3,+3 darkens the window");
+        f = compose({}, window, 780, 200, text, q, 0, true);
+        check(at(21, 451, 0) == 128 && at(721, 551, 0) == 255, "nothing revealed yet; arrow at (720,550)");
+    }
 
     // C API.
     DBScript* c = db_script_parse(reinterpret_cast<const uint8_t*>(sample.data()), int32_t(sample.size()));

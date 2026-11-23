@@ -144,6 +144,27 @@ int32_t db_script_token_kind(const DBScript* s, int32_t page, int32_t tok);
 const char* db_script_token_bytes(const DBScript* s, int32_t page, int32_t tok, int32_t* len);
 uint32_t db_script_token_rgb(const DBScript* s, int32_t page, int32_t tok);
 
+/* ---- Talk text box (src/talk.h) -----------------------------------------------------
+ * One page of text laid out as the talk scene does (MS Gothic 24, fixed 12/24 px cells,
+ * wrap 760, 5 lines, gradient). The caller rasterises each glyph code with a font and
+ * hands in coverage masks (0..16, as GGO_GRAY4); db_talk_compose then draws the scene's
+ * 800x600 frame: window at 50%, shadowed text revealed cell by cell, arrow. */
+typedef struct DBTalk DBTalk;
+enum { DB_TALK_WIDTH = 800, DB_TALK_HEIGHT = 600 };
+DBTalk* db_talk_layout(const char* text, int32_t len); /* raw cp932 page text */
+void db_talk_free(DBTalk* t);
+int32_t db_talk_glyph_count(const DBTalk* t);
+/* code: one byte, or lead << 8 | trail; x, y: cell origin in the text bitmap. */
+int32_t db_talk_glyph(const DBTalk* t, int32_t i, uint32_t* code, int32_t* bytes, int32_t* x, int32_t* y);
+int32_t db_talk_text_bytes(const DBTalk* t); /* strlen: where the reveal counter ends */
+int32_t db_talk_lines(const DBTalk* t);
+int32_t db_talk_stopped(const DBTalk* t);    /* 1 if text ran past the box */
+int32_t db_talk_set_mask(DBTalk* t, uint32_t code, const uint8_t* coverage, int32_t width, int32_t height,
+                         int32_t left, int32_t top);
+/* background: 800x600 RGBA or NULL (black); window: decoded data/talk/window.cnv. */
+int32_t db_talk_compose(DBTalk* t, const uint8_t* background, const uint8_t* window, int32_t window_w,
+                        int32_t window_h, int32_t reveal, int32_t arrow, uint8_t* out_rgba);
+
 /* ---- Identifying a picked file -----------------------------------------------------
  * Roles, by entry count plus a known member (src/identify.h). */
 enum {

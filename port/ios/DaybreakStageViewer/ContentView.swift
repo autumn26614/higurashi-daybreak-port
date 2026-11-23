@@ -112,6 +112,12 @@ struct ContentView: View {
                 Label("View stage in 3D", systemImage: "cube")
             }
             .accessibilityIdentifier("view3D")
+            NavigationLink {
+                TalkScriptList(urls: archiveURLs)
+            } label: {
+                Label("Read scenario scripts", systemImage: "text.bubble")
+            }
+            .accessibilityIdentifier("scripts")
         }
         Section("Meshes (slots 00–07), expected: \(expected.label)") {
             check("Plain set (game default)", "\(r.plainMeshes) meshes / \(r.plainTriangles) tris",
@@ -205,12 +211,14 @@ struct ContentView: View {
         errorText = nil
         loading = true
         Task.detached(priority: .userInitiated) {
-            var found: [ArchiveInfo]? = nil
+            var fromBookmarks: [ArchiveInfo]? = nil
             if let urls = BookmarkStore().load(for: mode) {
-                found = try? withScopedAccess(urls) { try ArchiveOrder.order(urls.map(ArchiveInfo.identify), for: mode) }
-                if found == nil { BookmarkStore().clear(for: mode) }
+                fromBookmarks = try? withScopedAccess(urls) {
+                    try ArchiveOrder.order(urls.map(ArchiveInfo.identify), for: mode)
+                }
+                if fromBookmarks == nil { BookmarkStore().clear(for: mode) }
             }
-            if found == nil { found = try? ArchiveOrder.order(DocumentsFolder.scan(), for: mode) }
+            let found = fromBookmarks ?? (try? ArchiveOrder.order(DocumentsFolder.scan(), for: mode))
             await MainActor.run {
                 loading = false
                 if let found { open(found, mode: mode) }
