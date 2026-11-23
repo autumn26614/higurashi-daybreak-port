@@ -55,6 +55,30 @@ int32_t db_image_bpp(const DBImage* img);    /* 24 or 32 as stored; output is al
 /* width*height*4 bytes, R,G,B,A, top row first, straight (non-premultiplied) alpha. */
 const uint8_t* db_image_rgba(const DBImage* img);
 
+/* ---- Identifying a picked file -----------------------------------------------------
+ * Roles, by entry count plus a known member (src/identify.h). */
+enum {
+    DB_ROLE_UNKNOWN = 0,
+    DB_ROLE_BASE00 = 1, /* daybreak00.dat: stages, scenes, scripts */
+    DB_ROLE_BASE01 = 2, /* daybreak01.dat: BGM */
+    DB_ROLE_BASE02 = 3, /* daybreak02.dat: movies */
+    DB_ROLE_KAI04 = 4,  /* daybreak04.dat: Kai data, searched before daybreak00 */
+    DB_ROLE_KAI05 = 5,  /* daybreak05.dat: Kai BGM */
+    DB_ROLE_KAI06 = 6   /* daybreak06.dat: Kai movies */
+};
+typedef struct {
+    int32_t role;            /* DB_ROLE_* */
+    int32_t entries;
+    int64_t file_size;
+    int32_t scripts;         /* scenario scripts in the archive */
+    int32_t english_scripts; /* of those, ASCII-only (English fan translation applied) */
+} DBArchiveInfo;
+/* Opens and validates the archive at path, fills *out. Returns 1 on success, 0 with a
+ * message in err if the file cannot be read or its index is corrupt. */
+int32_t db_identify_archive(const char* path, DBArchiveInfo* out, char* err, int32_t err_len);
+/* "daybreak00.dat" etc. for a role; "" for DB_ROLE_UNKNOWN. Static storage. */
+const char* db_role_file_name(int32_t role);
+
 #ifdef __cplusplus
 }
 #endif

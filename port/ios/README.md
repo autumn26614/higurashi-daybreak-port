@@ -1,6 +1,6 @@
 # DaybreakStageViewer: iOS test app for the stage reader
 
-A minimal SwiftUI app. You pick `daybreak00.dat` from the Files app, and it shows stage 01's mesh and triangle counts, texture-resolution results, and one Japanese filename decoded from cp932. Each value gets a ✓/✗ against the expected values below. It uses the same portable C++ reader as `port/stageinfo`, through the C API in `port/src/daybreak_c.h`. The archive is read in place and never modified.
+A minimal SwiftUI app. You pick `daybreak00.dat` from the Files app, and it shows stage 01's mesh and triangle counts, texture-resolution results, and one Japanese filename decoded from cp932. Each value gets a ✓/✗ against the expected values below. An "Archives" section shows what each file is and whether the English fan translation is applied (ASCII-only scenario scripts). It uses the same portable C++ reader as `port/stageinfo`, through the C API in `port/src/daybreak_c.h`. The archive is read in place and never modified.
 
 ```
 port/
@@ -20,7 +20,9 @@ port/
 - Verified on Linux (2026-11-20): the C++ part and the C API the app calls, via `tests/capi_test.c`, which makes the same calls in the same order. It reports the expected values below on x86-64 (WSL, g++ 15.2) and on aarch64 (cross g++ 15.2, run under qemu-aarch64 10.2.1). The first Japanese name's raw bytes decode to `くさむら06.bmp` with Python's cp932 codec.
 
 ## Build on a Mac
-Requirements: Xcode 15 or newer, an iOS 16+ device or simulator. `daybreak00.dat` (1.5 GB) must be reachable from the Files app: AirDrop it to "On My iPhone", or for the simulator drag it into the simulator's Files app.
+Requirements: Xcode 15 or newer, an iOS 16+ device or simulator. Get `daybreak00.dat` (1.5 GB) onto the device in one of two ways:
+- Copy it into the app's own folder: Files app → On My iPhone → Daybreak Stage, or Finder file sharing from a Mac. The app finds archives there at launch, whatever their names.
+- Or keep it anywhere the Files app reaches (iCloud Drive, another app's folder) and pick it with the button. The app remembers the pick (a bookmark) and reopens it at the next launch.
 
 ### Option A: XcodeGen (quickest)
 ```sh
@@ -63,7 +65,7 @@ Every row should show a green ✓. Things worth noting if one doesn't:
 - **"Could not read the archive":** usually the file is still an iCloud placeholder, or it was picked without access. The app calls `startAccessingSecurityScopedResource()`.
 
 ## Kai expansion mode
-Switch the segmented control to **Kai**, tap **Choose daybreak00.dat + daybreak04.dat**, and select both files in one go. `daybreak04.dat` comes from the Kai disc (`DATA/DAYBRE~1.DAT` in the disc's 8.3 directory, `daybreak04.dat` under its long-name Joliet names). The app identifies the files by name (case-insensitive) and searches **daybreak04 first, then daybreak00**, as DaybreakDX.exe does (`analysis/07-kai-archive-lookup.md`). The "Search order" row shows the order used. It reads stage 16, which exists only in daybreak04, so a correct result cannot come from the base archive alone:
+Switch the segmented control to **Kai**, tap **Choose daybreak00.dat + daybreak04.dat**, and select both files in one go. `daybreak04.dat` comes from the Kai disc (`DATA/DAYBRE~1.DAT` in the disc's 8.3 directory, `daybreak04.dat` under its long-name Joliet names). The app identifies each file by its contents (entry count plus a known entry, so a renamed copy still works; `port/src/identify.h`) and searches **daybreak04 first, then daybreak00**, as DaybreakDX.exe does (`analysis/07-kai-archive-lookup.md`). The "Search order" row shows the order used. It reads stage 16, which exists only in daybreak04, so a correct result cannot come from the base archive alone:
 
 | row | expected value |
 |---|---|
@@ -78,7 +80,7 @@ The same C call (`db_stage_report_open_set`, 04 then 00) was checked on Linux ag
 Every resolved row under **All textures** opens a preview. The preview decodes that `.cnv` from the same archives, in the same search order, through `db_archives_open` / `db_image_load`. It shows the texture at its stored pixels without smoothing, with its size and bpp. Decoding was checked against all 5,418 images in daybreak00 and Kai daybreak04 on Linux (`port/README.md`, "Textures"). On iOS it is so far exercised only with the fixture texture: 2×2 red, green, blue and white.
 
 ## CI: simulator test without game data
-`.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow file) runs on `macos-15-intel` (x86_64) and, experimentally, `macos-15` (arm64):
+`.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow or port/) runs on `macos-15-intel` (x86_64) and, experimentally, `macos-15` (arm64):
 1. Regenerates `Fixtures/fixture.dat` and `fixture-overlay.dat` with `port/tools/make_fixture.py` and requires both to match the committed copies byte for byte.
 2. Builds `port/` natively with clang and runs `capi_test … fixture` and `make test`.
 3. `xcodegen generate`, then `xcodebuild test` on the newest available iPhone simulator (`ci/pick_simulator.py`), unsigned (`CODE_SIGNING_ALLOWED=NO`).

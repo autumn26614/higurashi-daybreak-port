@@ -11,6 +11,7 @@
 
 #include "../src/archive.h"
 #include "../src/daybreak_c.h"
+#include "../src/identify.h"
 #include "../src/stage.h"
 
 using namespace db;
@@ -175,6 +176,50 @@ std::string mesh(int tris) {
     return s;
 }
 
+
+// Archive roles come from entry count + a known member; language from scenario scripts.
+void identify_tests(const std::string& dir) {
+    const std::string path = dir + "/ident.dat";
+    auto make = [&](size_t count, const Files& fixed) {
+        Files f = fixed;
+        for (size_t i = f.size(); i < count; ++i) f.push_back({"data/filler/" + std::to_string(i) + ".bin", "x"});
+        return write_bytes(path, build_archive(f, 0));
+    };
+    auto ident = [&](ArchiveIdent& id) {
+        std::string err;
+        return identify_archive(path, id, &err);
+    };
+    ArchiveIdent id;
+    const std::string jp = "VOICE a.wav\r\n\x82\xa0\\n\r\n";  // hiragana a, then a literal \n
+    const std::string en = "VOICE a.wav\r\nHello\\cFF0000 there\\n\r\n";
+    check(make(7677, {{"data/stage01/00.x", "x"}, {"data/scenario/a.txt", jp}, {"data/scenario/win/b.txt", jp}}) &&
+              ident(id) && id.role == ArchiveRole::Base00 && id.scripts == 2 && id.english_scripts == 0,
+          "7677 entries with stage01 = daybreak00, Japanese");
+    check(make(7677, {{"data/stage01/00.x", "x"}, {"data/scenario/a.txt", jp}, {"DATA/Scenario/Win/b.TXT", en}}) &&
+              ident(id) && id.role == ArchiveRole::Base00 && id.scripts == 2 && id.english_scripts == 1,
+          "one ASCII-only script = English patch present (VOICE lines ignored, case-insensitive path)");
+    check(make(7676, {{"data/stage01/00.x", "x"}}) && ident(id) && id.role == ArchiveRole::Unknown,
+          "one entry short of daybreak00 is unknown");
+    check(make(7677, {{"data/stage02/00.x", "x"}}) && ident(id) && id.role == ArchiveRole::Unknown,
+          "right count without the member is unknown");
+    check(make(4434, {{"data/stage16/00.x", "x"}}) && ident(id) && id.role == ArchiveRole::Kai04, "daybreak04");
+    check(make(37, {{"data/bgm/win.ogg", "x"}}) && ident(id) && id.role == ArchiveRole::Base01, "daybreak01");
+    check(make(41, {{"data/bgm/win.ogg", "x"}}) && ident(id) && id.role == ArchiveRole::Kai05, "daybreak05");
+    check(make(10, {{"movie/staffroll.mpg", "x"}}) && ident(id) && id.role == ArchiveRole::Base02, "daybreak02");
+    check(make(5, {{"movie/staffroll.mpg", "x"}}) && ident(id) && id.role == ArchiveRole::Kai06, "daybreak06");
+    check(std::string(role_file_name(ArchiveRole::Kai04)) == "daybreak04.dat" &&
+              std::string(role_file_name(ArchiveRole::Unknown)).empty(),
+          "role file names");
+
+    DBArchiveInfo info{};
+    char cerr[256];
+    check(make(4434, {{"data/stage16/00.x", "x"}}) && db_identify_archive(path.c_str(), &info, cerr, sizeof cerr) == 1 &&
+              info.role == DB_ROLE_KAI04 && info.entries == 4434 && std::string(db_role_file_name(info.role)) == "daybreak04.dat",
+          "C API db_identify_archive");
+    check(write_bytes(path, {1, 0}) && db_identify_archive(path.c_str(), &info, cerr, sizeof cerr) == 0 && cerr[0],
+          "C API reports a corrupt archive");
+    check(db_identify_archive(nullptr, &info, cerr, sizeof cerr) == 0, "C API rejects a null path");
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -243,6 +288,7 @@ int main(int argc, char** argv) {
     check(db_stage_report_open_set(paths, 0, 1, cerr, sizeof cerr) == nullptr, "C API rejects an empty set");
 
     validation_tests(argv[1]);
+    identify_tests(argv[1]);
 
     printf("%s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;

@@ -95,13 +95,86 @@ final class StageReportTests: XCTestCase {
         XCTAssertThrowsError(try TextureImage.load(paths: ["/nonexistent/daybreak00.dat"], name: Array("a.bmp".utf8)))
     }
 
-    func testKaiOrderFromPickedFiles() throws {
-        let base = URL(fileURLWithPath: "/x/DayBreak00.DAT")
-        let kai = URL(fileURLWithPath: "/y/daybreak04.dat")
-        XCTAssertEqual(try ArchiveOrder.kai([base, kai]), [kai, base])
-        XCTAssertEqual(try ArchiveOrder.kai([kai, base]), [kai, base])
-        XCTAssertThrowsError(try ArchiveOrder.kai([base]))
-        XCTAssertThrowsError(try ArchiveOrder.kai([base, URL(fileURLWithPath: "/z/daybreak05.dat")]))
-        XCTAssertThrowsError(try ArchiveOrder.kai([base, kai, URL(fileURLWithPath: "/z/daybreak04.dat")]))
+    private func info(_ path: String, _ role: ArchiveRole) -> ArchiveInfo {
+        ArchiveInfo(url: URL(fileURLWithPath: path), role: role, entries: 1, scripts: 0, englishScripts: 0)
+    }
+
+    /// Order comes from what each file is, not from its name or the pick order.
+    func testKaiOrderFromIdentifiedFiles() throws {
+        let base = info("/x/DayBreak00.DAT", .base00)
+        let kai = info("/y/renamed.dat", .kai04)
+        XCTAssertEqual(try ArchiveOrder.order([base, kai], for: .kai), [kai, base])
+        XCTAssertEqual(try ArchiveOrder.order([kai, base], for: .kai), [kai, base])
+        XCTAssertEqual(try ArchiveOrder.order([base], for: .base), [base])
+        XCTAssertEqual(try ArchiveOrder.order([info("/z/daybreak05.dat", .kai05), base], for: .base), [base],
+                       "extra archives are ignored")
+        XCTAssertThrowsError(try ArchiveOrder.order([base], for: .kai))
+        XCTAssertThrowsError(try ArchiveOrder.order([kai], for: .base))
+        XCTAssertThrowsError(try ArchiveOrder.order([], for: .base))
+    }
+
+    /// A wrong pick says what the file really is.
+    func testOrderErrorNamesRenamedFiles() {
+        let renamed = info("/x/daybreak00.dat", .kai04)
+        XCTAssertThrowsError(try ArchiveOrder.order([renamed], for: .base)) { error in
+            let text = error.localizedDescription
+            XCTAssertTrue(text.contains("Needs daybreak00.dat"), text)
+            XCTAssertTrue(text.contains("daybreak00.dat (is daybreak04.dat)"), text)
+        }
+        XCTAssertThrowsError(try ArchiveOrder.order([info("/x/other.dat", .unknown)], for: .base)) { error in
+            XCTAssertTrue(error.localizedDescription.contains("not a Daybreak archive"), error.localizedDescription)
+        }
+    }
+
+    func testIdentifyFixture() throws {
+        let i = try ArchiveInfo.identify(URL(fileURLWithPath: fixturePath()))
+        XCTAssertEqual(i.role, .unknown, "the fixture is not a retail archive")
+        XCTAssertEqual(i.entries, 3)
+        XCTAssertEqual(i.languageSummary, "no scripts")
+        XCTAssertThrowsError(try ArchiveInfo.identify(URL(fileURLWithPath: "/nonexistent/daybreak00.dat")))
+        XCTAssertEqual(ArchiveRole.kai04.fileName, "daybreak04.dat")
+        XCTAssertEqual(ArchiveRole.unknown.fileName, "")
+    }
+
+    func testBookmarksRoundTrip() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("daybreak04.dat"), b = dir.appendingPathComponent("daybreak00.dat")
+        try FileManager.default.copyItem(atPath: overlayPath(), toPath: a.path)
+        try FileManager.default.copyItem(atPath: fixturePath(), toPath: b.path)
+
+        let suite = "bookmarks-test-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = BookmarkStore(defaults: defaults)
+        XCTAssertNil(store.load(for: .kai))
+        try store.save([a, b], for: .kai)
+        let loaded = try XCTUnwrap(store.load(for: .kai))
+        XCTAssertEqual(loaded.map { $0.resolvingSymlinksInPath().path },
+                       [a, b].map { $0.resolvingSymlinksInPath().path }, "order is kept")
+        XCTAssertNil(store.load(for: .base), "modes are stored separately")
+
+        // The saved set still opens as a Kai-style search.
+        let r = try StageReport.load(paths: loaded.map(\.path), stage: 1)
+        XCTAssertEqual(r.plainTriangles, ExpectedValues.fixtureOverlay.plainTriangles)
+
+        try FileManager.default.removeItem(at: a)
+        XCTAssertNil(store.load(for: .kai), "a deleted file invalidates the saved set")
+        store.clear(for: .kai)
+        XCTAssertNil(store.load(for: .kai))
+    }
+
+    func testDocumentsScan() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.copyItem(atPath: fixturePath(), toPath: dir.appendingPathComponent("b.DAT").path)
+        try FileManager.default.copyItem(atPath: overlayPath(), toPath: dir.appendingPathComponent("a.dat").path)
+        try Data("not an archive".utf8).write(to: dir.appendingPathComponent("c.dat"))
+        try Data().write(to: dir.appendingPathComponent("notes.txt"))
+        let found = DocumentsFolder.scan(dir)
+        XCTAssertEqual(found.map { $0.url.lastPathComponent }, ["a.dat", "b.DAT"], "corrupt and non-.dat files skipped")
+        XCTAssertEqual(found.map(\.entries), [1, 3])
     }
 }

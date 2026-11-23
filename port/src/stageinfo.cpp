@@ -15,6 +15,7 @@
 
 #include "archive.h"
 #include "cnv.h"
+#include "identify.h"
 #include "png.h"
 #include "stage.h"
 #include "xfile.h"
@@ -219,6 +220,23 @@ int main(int argc, char** argv) {
         else
             args.push_back(argv[i]);
     }
+    if (args.size() >= 2 && args[0] == "--identify") {
+        int rc = 0;
+        for (size_t i = 1; i < args.size(); ++i) {
+            ArchiveIdent id;
+            std::string e;
+            if (!identify_archive(args[i], id, &e)) {
+                printf("%s: %s\n", args[i].c_str(), e.c_str());
+                rc = 1;
+                continue;
+            }
+            const char* role = role_file_name(id.role);
+            printf("%s: %s, %zu entries, %llu bytes, %d scripts, %d English\n", args[i].c_str(),
+                   *role ? role : "unknown",
+                   id.entries, (unsigned long long)id.file_size, id.scripts, id.english_scripts);
+        }
+        return rc;
+    }
     if (args.size() < 2) {
         fprintf(stderr,
                 "usage: %s <daybreak00.dat> <stage> [--tree]\n"
@@ -226,9 +244,10 @@ int main(int argc, char** argv) {
                 "       %s <daybreak00.dat> --stages\n"
                 "       %s <daybreak00.dat> --cnv <entry-name> <out.png>   (a .bmp name is mapped to .cnv)\n"
                 "       %s <daybreak00.dat> --cnv-check                    decode every .cnv entry\n"
+                "       %s --identify <dat>...                             which archive; English or not\n"
                 "  --overlay <dat>  search this archive before daybreak00.dat (repeatable, in order);\n"
                 "                   Kai: --overlay daybreak04.dat\n",
-                argv[0], argv[0], argv[0], argv[0], argv[0]);
+                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 2;
     }
     std::vector<std::string> paths = overlays;

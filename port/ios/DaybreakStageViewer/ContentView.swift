@@ -29,6 +29,9 @@ struct ContentView: View {
     @State private var expected = ExpectedValues.retailStage01
     @State private var errorText: String?
     @State private var loading = false
+    @State private var infos: [ArchiveInfo] = []  // identified archives, search order
+    @State private var usingFixture = false
+    private let bookmarks = BookmarkStore()
 
     var body: some View {
         NavigationStack {
@@ -51,6 +54,15 @@ struct ContentView: View {
                         Text(errorText).foregroundStyle(.red).accessibilityIdentifier("error")
                     }
                 }
+                if !infos.isEmpty {
+                    Section("Archives") {
+                        ForEach(infos, id: \.url) { info in
+                            LabeledContent(info.url.lastPathComponent,
+                                           value: "\(info.role.fileName), \(info.languageSummary)")
+                                .accessibilityIdentifier("archive.\(info.role.fileName)")
+                        }
+                    }
+                }
                 if let r = report { results(r) }
             }
             .navigationTitle(String(format: "Stage %02d", stage))
@@ -60,22 +72,19 @@ struct ContentView: View {
                 case .failure(let error):
                     errorText = error.localizedDescription
                 case .success(let urls):
-                    if mode == .kai {
-                        do {
-                            let ordered = try ArchiveOrder.kai(urls)
-                            open(ordered, stage: 16, expecting: .kaiStage16)
-                        } catch {
-                            report = nil
-                            errorText = error.localizedDescription
-                        }
-                    } else if let url = urls.first {
-                        open([url], stage: 1, expecting: .retailStage01)
-                    }
+                    openPicked(urls)
                 }
+            }
+            .onChange(of: mode) { _ in
+                if !usingFixture { restore() }
             }
             .task {
                 let args = ProcessInfo.processInfo.arguments
-                guard args.contains(useBundledFixtureArgument) else { return }
+                guard args.contains(useBundledFixtureArgument) else {
+                    restore()
+                    return
+                }
+                usingFixture = true
                 guard let base = Bundle.main.url(forResource: "fixture", withExtension: "dat") else {
                     errorText = "fixture.dat is not in the app bundle"
                     return
@@ -149,6 +158,63 @@ struct ContentView: View {
         }
     }
 
+    private func expected(for mode: ArchiveMode) -> ExpectedValues {
+        mode == .kai ? .kaiStage16 : .retailStage01
+    }
+
+    /// Identifies the picked files by content, orders them for the current mode, and
+    /// remembers them for the next launch.
+    private func openPicked(_ urls: [URL]) {
+        let mode = mode
+        report = nil
+        errorText = nil
+        loading = true
+        Task.detached(priority: .userInitiated) {
+            let outcome = Result { () -> [ArchiveInfo] in
+                try withScopedAccess(urls) {
+                    let ordered = try ArchiveOrder.order(urls.map(ArchiveInfo.identify), for: mode)
+                    try? BookmarkStore().save(ordered.map(\.url), for: mode)
+                    return ordered
+                }
+            }
+            await MainActor.run {
+                loading = false
+                switch outcome {
+                case .success(let ordered): open(ordered, mode: mode)
+                case .failure(let error): errorText = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// At launch and on a mode switch: reopen the archives picked last time, else use
+    /// archives copied into the app's Documents folder. Silent if neither is there.
+    private func restore() {
+        let mode = mode
+        report = nil
+        infos = []
+        fileNames = []
+        errorText = nil
+        loading = true
+        Task.detached(priority: .userInitiated) {
+            var found: [ArchiveInfo]? = nil
+            if let urls = BookmarkStore().load(for: mode) {
+                found = try? withScopedAccess(urls) { try ArchiveOrder.order(urls.map(ArchiveInfo.identify), for: mode) }
+                if found == nil { BookmarkStore().clear(for: mode) }
+            }
+            if found == nil { found = try? ArchiveOrder.order(DocumentsFolder.scan(), for: mode) }
+            await MainActor.run {
+                loading = false
+                if let found { open(found, mode: mode) }
+            }
+        }
+    }
+
+    private func open(_ ordered: [ArchiveInfo], mode: ArchiveMode) {
+        infos = ordered
+        open(ordered.map(\.url), stage: mode.stage, expecting: expected(for: mode))
+    }
+
     /// `urls` are in search order: the first archive that has a name wins.
     private func open(_ urls: [URL], stage: Int32, expecting: ExpectedValues) {
         fileNames = urls.map { $0.lastPathComponent }
@@ -161,11 +227,7 @@ struct ContentView: View {
         Task.detached(priority: .userInitiated) {
             // Files picked from the Files app are outside the sandbox; the archives are read
             // in place (daybreak00 is ~1.5 GB and daybreak04 ~1.3 GB, so they are not copied).
-            let scoped = urls.map { $0.startAccessingSecurityScopedResource() }
-            defer {
-                for (url, ok) in zip(urls, scoped) where ok { url.stopAccessingSecurityScopedResource() }
-            }
-            let outcome = Result { try StageReport.load(paths: urls.map(\.path), stage: stage) }
+            let outcome = Result { try withScopedAccess(urls) { try StageReport.load(paths: urls.map(\.path), stage: stage) } }
             await MainActor.run {
                 loading = false
                 switch outcome {

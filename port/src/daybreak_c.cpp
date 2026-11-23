@@ -10,6 +10,7 @@
 
 #include "archive.h"
 #include "cnv.h"
+#include "identify.h"
 #include "stage.h"
 
 struct DBStageReport {
@@ -177,5 +178,26 @@ int32_t db_image_width(const DBImage* img) { return img ? int32_t(img->image.wid
 int32_t db_image_height(const DBImage* img) { return img ? int32_t(img->image.height) : -1; }
 int32_t db_image_bpp(const DBImage* img) { return img ? int32_t(img->image.bpp) : -1; }
 const uint8_t* db_image_rgba(const DBImage* img) { return img ? img->image.rgba.data() : nullptr; }
+
+int32_t db_identify_archive(const char* path, DBArchiveInfo* out, char* err, int32_t err_len) {
+    if (!path || !out) {
+        set_err(err, err_len, "no path");
+        return 0;
+    }
+    db::ArchiveIdent id;
+    std::string e;
+    if (!db::identify_archive(path, id, &e)) {
+        set_err(err, err_len, e);
+        return 0;
+    }
+    out->role = int32_t(id.role);
+    out->entries = int32_t(id.entries);
+    out->file_size = int64_t(id.file_size);
+    out->scripts = id.scripts;
+    out->english_scripts = id.english_scripts;
+    return 1;
+}
+
+const char* db_role_file_name(int32_t role) { return db::role_file_name(db::ArchiveRole(role)); }
 
 }  // extern "C"

@@ -27,6 +27,10 @@ targets:
         CFBundleDisplayName: Daybreak Stage
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Archives copied into the app's folder (Files: On My iPhone > Daybreak Stage, or
+        # Finder file sharing) are found at launch; see DocumentsFolder.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.DaybreakStageViewer

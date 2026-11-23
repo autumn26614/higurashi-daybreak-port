@@ -55,7 +55,7 @@ struct StageReport {
     }
 
     /// Same, over several archives searched in order; the first that has a name wins
-    /// (Kai: daybreak04.dat, then daybreak00.dat; see ArchiveOrder.kai).
+    /// (Kai: daybreak04.dat, then daybreak00.dat; see ArchiveOrder.order).
     static func load(paths: [String], stage: Int32) throws -> StageReport {
         var err = [CChar](repeating: 0, count: 256)
         let opened = withCPaths(paths) { argv, count in
@@ -107,36 +107,6 @@ func withCPaths<R>(_ paths: [String], _ body: (UnsafePointer<UnsafePointer<CChar
 /// The NUL-terminated message a C API call wrote into `err`.
 func message(_ err: [CChar]) -> String {
     String(decoding: err.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-}
-
-/// Archive search order. DaybreakDX.exe attaches daybreak04.dat before daybreak00.dat
-/// and File::Open (0x6510a0) takes the first archive that has the name
-/// (analysis/07-kai-archive-lookup.md).
-enum ArchiveOrder {
-    static let kaiNames = ["daybreak04.dat", "daybreak00.dat"]
-
-    enum OrderError: LocalizedError {
-        case wrongFiles([String])
-        var errorDescription: String? {
-            switch self {
-            case .wrongFiles(let names):
-                let got = names.isEmpty ? "nothing" : names.joined(separator: ", ")
-                return "Kai needs exactly daybreak00.dat and daybreak04.dat (got \(got))"
-            }
-        }
-    }
-
-    /// Puts the picked files in the game's search order, matching names case-insensitively.
-    static func kai(_ urls: [URL]) throws -> [URL] {
-        let names = urls.map { $0.lastPathComponent }
-        let ordered = kaiNames.compactMap { want in
-            urls.first { $0.lastPathComponent.lowercased() == want }
-        }
-        guard urls.count == kaiNames.count, ordered.count == kaiNames.count else {
-            throw OrderError.wrongFiles(names)
-        }
-        return ordered
-    }
 }
 
 /// Values the screen checks against (green ✓ / red ✗).
