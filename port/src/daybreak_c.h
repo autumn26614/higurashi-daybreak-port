@@ -55,6 +55,27 @@ int32_t db_image_bpp(const DBImage* img);    /* 24 or 32 as stored; output is al
 /* width*height*4 bytes, R,G,B,A, top row first, straight (non-premultiplied) alpha. */
 const uint8_t* db_image_rgba(const DBImage* img);
 
+/* ---- Scenario scripts (src/scenario.h) ---------------------------------------------
+ * Scenario scripts (data/scenario/..., .txt) in the set, deduplicated (first archive wins), sorted
+ * case-insensitively. Names are raw cp932; pointers live as long as the DBArchives. */
+int32_t db_archives_script_count(DBArchives* a);
+const char* db_archives_script_name(DBArchives* a, int32_t i, int32_t* len);
+
+/* A parsed script: pages = text lines, each with the VOICE clip before it (if any).
+ * Tokens of a page: kind DB_TOK_*, the exact source bytes (cp932), and for a colour
+ * 0xRRGGBB. Pointers stay valid until db_script_free. */
+typedef struct DBScript DBScript;
+enum { DB_TOK_TEXT = 0, DB_TOK_COLOR = 1, DB_TOK_COLOR_RESET = 2, DB_TOK_NEWLINE = 3, DB_TOK_UNKNOWN = 4 };
+DBScript* db_script_load(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len);
+DBScript* db_script_parse(const uint8_t* bytes, int32_t len);
+void db_script_free(DBScript* s);
+int32_t db_script_page_count(const DBScript* s);
+const char* db_script_page_voice(const DBScript* s, int32_t page, int32_t* len); /* "" if none */
+int32_t db_script_token_count(const DBScript* s, int32_t page);
+int32_t db_script_token_kind(const DBScript* s, int32_t page, int32_t tok);
+const char* db_script_token_bytes(const DBScript* s, int32_t page, int32_t tok, int32_t* len);
+uint32_t db_script_token_rgb(const DBScript* s, int32_t page, int32_t tok);
+
 /* ---- Identifying a picked file -----------------------------------------------------
  * Roles, by entry count plus a known member (src/identify.h). */
 enum {

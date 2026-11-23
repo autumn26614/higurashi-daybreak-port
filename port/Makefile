@@ -4,19 +4,20 @@ CC       ?= cc
 # -ffp-contract=off: no fused multiply-add, so bounding boxes match on x86-64 and arm64.
 override CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -ffp-contract=off $(CXXFLAGS)
 override CFLAGS   := -std=c11 -O2 -Wall -Wextra -ffp-contract=off $(CFLAGS)
-LIB      := src/archive.cpp src/cnv.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp src/identify.cpp
+LIB      := src/archive.cpp src/cnv.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp src/identify.cpp src/scenario.cpp
 BUILD    ?= build
 BIN      := $(BUILD)/stageinfo
 CAPI     := $(BUILD)/capi_test
 SETTEST  := $(BUILD)/archive_set_test
 CNVTEST  := $(BUILD)/cnv_test
+SCNTEST  := $(BUILD)/scenario_test
 
 # glibc has iconv built in; macOS ships it as a separate libiconv.
 ifeq ($(shell uname -s),Darwin)
 LDLIBS   += -liconv
 endif
 
-all: $(BIN) $(CAPI) $(SETTEST) $(CNVTEST)
+all: $(BIN) $(CAPI) $(SETTEST) $(CNVTEST) $(SCNTEST)
 
 $(BIN): $(LIB) src/png.cpp src/stageinfo.cpp src/*.h
 	@mkdir -p $(dir $@)
@@ -38,9 +39,15 @@ $(CNVTEST): $(LIB) src/daybreak_c.cpp tests/cnv_test.cpp src/*.h
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -o $@ $(LIB) src/daybreak_c.cpp tests/cnv_test.cpp $(LDLIBS)
 
-test: $(SETTEST) $(CNVTEST)
+# Scenario script parser and its C API (synthetic scripts).
+$(SCNTEST): $(LIB) src/daybreak_c.cpp tests/scenario_test.cpp src/*.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ $(LIB) src/daybreak_c.cpp tests/scenario_test.cpp $(LDLIBS)
+
+test: $(SETTEST) $(CNVTEST) $(SCNTEST)
 	$(SETTEST) $(dir $(SETTEST))
 	$(CNVTEST) ios/Fixtures
+	$(SCNTEST)
 
 # Same tests under AddressSanitizer + UBSan, built into build/asan.
 SANFLAGS := -g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined
