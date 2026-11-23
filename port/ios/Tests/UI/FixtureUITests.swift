@@ -66,6 +66,23 @@ final class FixtureUITests: XCTestCase {
         screenshot(app, "fixture-texture-preview")
     }
 
+    /// The 3D view loads the fixture stage and reports what it draws.
+    func testStageViewIn3D() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-useBundledFixture"]
+        app.launch()
+
+        let link = app.buttons["view3D"]
+        XCTAssertTrue(link.waitForExistence(timeout: 60), "3D link never appeared")
+        link.tap()
+        let stats = app.staticTexts["stageStats"]
+        XCTAssertTrue(stats.waitForExistence(timeout: 60), "3D view did not load the stage")
+        XCTAssertEqual(stats.label, "1 batches / 1 tris / 1 textures")
+        XCTAssertTrue(app.staticTexts["rendererKind"].exists)
+        XCTAssertFalse(app.staticTexts["error"].exists, "3D view reported an error")
+        screenshot(app, "fixture-3d (\(app.staticTexts["rendererKind"].label))")
+    }
+
     /// Kai mode: overlay fixture searched before the base fixture.
     func testKaiOverlayIsSearchedFirst() {
         let app = XCUIApplication()

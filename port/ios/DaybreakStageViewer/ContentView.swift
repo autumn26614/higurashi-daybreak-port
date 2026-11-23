@@ -105,6 +105,14 @@ struct ContentView: View {
 
     @ViewBuilder
     private func results(_ r: StageReport) -> some View {
+        Section {
+            NavigationLink {
+                StageView(urls: archiveURLs, stage: Int(stage))
+            } label: {
+                Label("View stage in 3D", systemImage: "cube")
+            }
+            .accessibilityIdentifier("view3D")
+        }
         Section("Meshes (slots 00–07), expected: \(expected.label)") {
             check("Plain set (game default)", "\(r.plainMeshes) meshes / \(r.plainTriangles) tris",
                   r.plainMeshes == expected.plainMeshes && r.plainTriangles == expected.plainTriangles,

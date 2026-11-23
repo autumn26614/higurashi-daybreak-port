@@ -16,16 +16,13 @@ jobs:
   ios-simulator:
     strategy:
       fail-fast: false
+      # Intel always. Apple silicon (macos-15) only on a manual run: its jobs have not been
+      # getting workers for this repository (queued, then cancelled), which would mark
+      # every push run as failed.
       matrix:
-        include:
-          - runner: macos-15-intel
-            arch: x86_64
-            experimental: false
-          # Apple silicon. Experimental until its queue time and images are known: an
-          # earlier attempt was cancelled before it got a worker.
-          - runner: macos-15
-            arch: arm64
-            experimental: true
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch'
+          && '[{"runner":"macos-15-intel","arch":"x86_64","experimental":false},{"runner":"macos-15","arch":"arm64","experimental":true}]'
+          || '[{"runner":"macos-15-intel","arch":"x86_64","experimental":false}]') }}
     name: ios-simulator (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.experimental }}
