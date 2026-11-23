@@ -124,6 +124,8 @@ struct StageView: View {
     @State private var cpuImage: CGImage?
     @State private var errorText: String?
     @State private var loading = false
+    @State private var showReference = false
+    @State private var viewSize = CGSize.zero
 
     var body: some View {
         VStack(spacing: 0) {
@@ -134,8 +136,12 @@ struct StageView: View {
                     if let renderer {
                         MetalStageView(renderer: renderer, orbit: Binding(get: { orbit }, set: { self.orbit = $0 }),
                                        base: scene.defaultCamera)
-                    } else if let cpuImage {
+                    }
+                    // CPU reference frame: the fallback without Metal, or on request to compare.
+                    if let cpuImage, renderer == nil || showReference {
                         Image(decorative: cpuImage, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                            .allowsHitTesting(false)
+                            .accessibilityIdentifier("referenceImage")
                     }
                 }
                 if loading { ProgressView().tint(.white) }
@@ -143,6 +149,7 @@ struct StageView: View {
                     Text(errorText).foregroundStyle(.red).padding().accessibilityIdentifier("error")
                 }
             }
+            .background(GeometryReader { g in Color.clear.onAppear { viewSize = g.size }.onChange(of: g.size) { viewSize = $0 } })
             stats
         }
         .navigationTitle(String(format: "Stage %02d in 3D", stage))
@@ -164,6 +171,14 @@ struct StageView: View {
             }
             .pickerStyle(.segmented)
             Button("Reset") { if let scene { orbit = OrbitCamera(scene.defaultCamera) } }
+            if renderer != nil {
+                // Shows the CPU reference renderer's frame for the current camera on top,
+                // to compare with Metal on real stages (CI only has the fixture).
+                Toggle("Ref", isOn: $showReference)
+                    .toggleStyle(.button)
+                    .accessibilityIdentifier("referenceToggle")
+                    .onChange(of: showReference) { on in if on { Task { await renderCPU() } } }
+            }
         }
         .padding(.horizontal)
         .disabled(loading)
@@ -217,7 +232,9 @@ struct StageView: View {
     private func renderCPU() async {
         guard let scene, let orbit else { return }
         let cam = orbit.camera(from: scene.defaultCamera)
-        let (w, h) = (480, 320)
+        // Same aspect as the Metal view, so the two frames line up.
+        let aspect = viewSize.width > 0 && viewSize.height > 0 ? viewSize.height / viewSize.width : 2.0 / 3.0
+        let (w, h) = (480, max(1, Int(480 * aspect)))
         let rgba = await Task.detached { scene.renderReference(camera: cam, width: w, height: h).rgba }.value
         guard let provider = CGDataProvider(data: Data(rgba) as CFData) else { return }
         cpuImage = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,

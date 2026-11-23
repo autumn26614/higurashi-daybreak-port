@@ -31,7 +31,8 @@ final class StageRendererTests: XCTestCase {
         let t = try XCTUnwrap(s.textures[b.textureName])
         XCTAssertEqual(t.levels.first?.width, 2)
         XCTAssertEqual(t.levels.first?.height, 2)
-        XCTAssertEqual(StageScene.availableStages(urls: [fixture("fixture")]), [1])
+        let base = try fixture("fixture")
+        XCTAssertEqual(StageScene.availableStages(urls: [base]), [1])
         XCTAssertThrowsError(try StageScene(urls: [fixture("fixture")], stage: 2), "no stage 02 in the fixture")
     }
 
@@ -55,7 +56,7 @@ final class StageRendererTests: XCTestCase {
     func testCameraMatricesProjectLikeD3D() {
         let m = frontView.matrices(aspect: 4.0 / 3.0)
         func project(_ p: SIMD3<Float>) -> SIMD3<Float> {
-            let c = m.proj * m.view * SIMD4(p, 1)
+            let c: SIMD4<Float> = m.proj * (m.view * SIMD4<Float>(p.x, p.y, p.z, 1))
             return SIMD3(c.x, c.y, c.z) / c.w
         }
         let centre = project(frontView.target)
@@ -67,7 +68,7 @@ final class StageRendererTests: XCTestCase {
         XCTAssertLessThan(project(SIMD3(100, 33, 0)).x, 0)
         XCTAssertGreaterThan(project(SIMD3(33, 100, 0)).y, 0)
         // View-space depth is the distance along the view direction.
-        XCTAssertEqual((m.view * SIMD4(frontView.target, 1)).z, 250, accuracy: 1e-3)
+        XCTAssertEqual((m.view * SIMD4<Float>(frontView.target.x, frontView.target.y, frontView.target.z, 1)).z, 250, accuracy: 1e-3)
     }
 
     func testOrbitCameraRoundTrip() {
