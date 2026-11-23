@@ -19,6 +19,8 @@
 #include "audio.h"
 #include "cnv.h"
 #include "scenario.h"
+#include "story.h"
+#include "talk.h"
 #include "geometry.h"
 #include "identify.h"
 #include "png.h"
@@ -271,6 +273,80 @@ int main(int argc, char** argv) {
     if (arg == "--x" && args.size() >= 3) return run_x(set, args[2]);
     if (arg == "--cnv" && args.size() >= 4) return run_cnv(set, args[2], args[3]);
     if (arg == "--cnv-check") return run_cnv_check(archives, paths);
+    if (arg == "--stories") {
+        // Every script: do the backgrounds, portraits, voices and music it names exist?
+        int scripts = 0, story = 0, pages = 0, missing = 0;
+        std::set<std::string> checked;
+        auto need = [&](const std::string& name, bool sound) {
+            if (name.empty() || !checked.insert(name).second) return;
+            const std::string low = lower_ascii(name);
+            const std::string ent = sound && low.compare(low.size() - 4, 4, ".ogg") == 0 ? name : cnv_name(name);
+            if (!set.find(ent)) {
+                if (++missing <= 10) printf("  missing %s\n", ent.c_str());
+            }
+        };
+        for (const auto& ar : archives)
+            for (const auto& e : ar.entries()) {
+                const std::string low = lower_ascii(e.name);
+                if (low.rfind("data/scenario/", 0) != 0 || low.compare(low.size() - 4, 4, ".txt") != 0) continue;
+                std::vector<uint8_t> d;
+                if (!ar.read(e, d, &err)) continue;
+                const story::Story st = story::parse(std::string(d.begin(), d.end()));
+                scripts++;
+                story += st.has_commands;
+                for (const auto& p : st.pages) {
+                    pages++;
+                    if (st.has_commands) need(p.voice, true);
+                    need(p.scene.background, false);
+                    need(p.scene.bgm, true);
+                    for (const auto& sl : p.scene.slots) need(sl.image, false);
+                }
+            }
+        printf("%d scripts (%d with scene commands), %d pages, %zu files referenced, %d missing\n", scripts, story,
+               pages, checked.size(), missing);
+        return missing ? 1 : 0;
+    }
+    if (arg == "--story" && args.size() >= 5) {
+        // One page of a script: its scene and the talk window (no glyphs: no fonts here).
+        const Entry* e = set.find(args[2]);
+        std::vector<uint8_t> d;
+        if (!e || !set.read(*e, d, &err)) {
+            fprintf(stderr, "missing %s\n", args[2].c_str());
+            return 1;
+        }
+        const story::Story st = story::parse(std::string(d.begin(), d.end()));
+        const size_t page = size_t(atoi(args[3].c_str()));
+        printf("%zu pages, commands %s\n", st.pages.size(), st.has_commands ? "yes" : "no");
+        if (page >= st.pages.size()) return 1;
+        const story::Page& p = st.pages[page];
+        auto load = [](void* ctx, const std::string& name, std::vector<uint8_t>& rgba, int& w, int& h) {
+            const Source& src = *static_cast<const Source*>(ctx);
+            const std::string low = lower_ascii(name);
+            const std::string ent = low.compare(low.size() - 4, 4, ".cnv") == 0 ? name : cnv_name(name);
+            const Entry* en = src.find(ent);
+            std::vector<uint8_t> dd;
+            Image img;
+            std::string er;
+            if (!en || !src.read(*en, dd, &er) || !decode_image(dd, img, &er)) return false;
+            rgba = img.rgba, w = int(img.width), h = int(img.height);
+            return true;
+        };
+        const std::vector<uint8_t> bg = st.has_commands ? story::compose(p.scene, load, &set)
+                                                        : talk::background(args[2], load, &set);
+        std::vector<uint8_t> win;
+        int ww = 0, wh = 0;
+        load(&set, "data/talk/window.cnv", win, ww, wh);
+        const talk::Layout l = talk::layout(p.text);
+        const std::vector<uint8_t> frame =
+            talk::compose(bg, win, ww, wh, talk::draw_text(l, {}), talk::Params(), l.text_bytes, true);
+        printf("page %zu: bg %s, bgm %s, voice %s, %zu glyphs\n", page, p.scene.background.c_str(), p.scene.bgm.c_str(),
+               p.voice.c_str(), l.glyphs.size());
+        for (int k = 0; k < 6; k++)
+            if (!p.scene.slots[k].image.empty())
+                printf("  slot %d: %s x %.0f%s\n", k, p.scene.slots[k].image.c_str(), p.scene.slots[k].x,
+                       p.scene.slots[k].mirrored ? " mirrored" : "");
+        return write_file(args[4], encode_png_rgba(800, 600, frame), &err) ? 0 : 1;
+    }
     if (arg == "--wav" && args.size() >= 4) {
         // One sound to a 16-bit WAV file, plus its level.
         Pcm p;

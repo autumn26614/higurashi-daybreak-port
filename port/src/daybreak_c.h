@@ -201,6 +201,21 @@ int32_t db_talk_background(DBArchives* a, const char* script, int32_t script_len
 int32_t db_talk_compose(DBTalk* t, const uint8_t* background, const uint8_t* window, int32_t window_w,
                         int32_t window_h, int32_t reveal, int32_t arrow, uint8_t* out_rgba);
 
+/* ---- Story scenes (src/story.h) ------------------------------------------------------
+ * Any scenario script as the talk scene plays it: pages of text, each with its voice
+ * entry, music and scene (background + up to six portraits). Win quotes (no commands)
+ * get the win screen's two portraits. Pointers live until db_story_free. */
+typedef struct DBStory DBStory;
+DBStory* db_story_load(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len);
+void db_story_free(DBStory* s);
+int32_t db_story_page_count(const DBStory* s);
+const char* db_story_page_text(const DBStory* s, int32_t page, int32_t* len);  /* raw cp932 */
+const char* db_story_page_voice(const DBStory* s, int32_t page, int32_t* len); /* entry or "" */
+const char* db_story_page_bgm(const DBStory* s, int32_t page, int32_t* len);   /* entry or "" */
+int32_t db_story_page_sleep_ms(const DBStory* s, int32_t page);
+/* The page's 800x600 RGBA background, ready for db_talk_compose. */
+int32_t db_story_background(DBArchives* a, const DBStory* s, int32_t page, uint8_t* out_rgba);
+
 /* ---- Identifying a picked file -----------------------------------------------------
  * Roles, by entry count plus a known member (src/identify.h). */
 enum {

@@ -51,6 +51,8 @@ struct TalkView: View {
     @State private var errorText: String?
     @State private var background: [UInt8]?
     @State private var player = SoundPlayer()
+    @State private var musicPlayer = SoundPlayer()
+    @State private var playingMusic: [UInt8] = []
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -84,14 +86,14 @@ struct TalkView: View {
         .task {
             do {
                 pages = try book.pages(script: scriptName)
-                background = book.background(script: scriptName)
-                playVoice()
+                openPage()
+
                 redraw()
             } catch {
                 errorText = error.localizedDescription
             }
         }
-        .onDisappear { player.stop() }
+        .onDisappear { player.stop(); musicPlayer.stop() }
         .onReceive(tick) { _ in
             guard !pages.isEmpty else { return }
             if counter < end {
@@ -114,7 +116,7 @@ struct TalkView: View {
         } else if index + 1 < pages.count {
             index += 1
             counter = -30
-            playVoice()
+            openPage()
             arrowFrame = 0
         }
         redraw()
@@ -130,9 +132,16 @@ struct TalkView: View {
 }
 
 extension TalkView {
-    /// The page's voice, as the game plays it when the page opens.
-    fileprivate func playVoice() {
+    /// What the talk scene does when a page opens: its scene (background and portraits),
+    /// its music if it changed, and its voice.
+    fileprivate func openPage() {
         guard index < pages.count else { return }
-        if let v = book.voice(pages[index]) { player.play(v) } else { player.stop() }
+        let page = pages[index]
+        background = book.storyBackground(page: page.index)
+        if page.bgm != playingMusic {
+            playingMusic = page.bgm
+            if let m = book.music(page.bgm) { musicPlayer.play(m) } else { musicPlayer.stop() }
+        }
+        if let v = book.voice(page) { player.play(v) } else { player.stop() }
     }
 }

@@ -18,6 +18,7 @@
 #include "recipe.h"
 #include "identify.h"
 #include "scenario.h"
+#include "story.h"
 #include "talk.h"
 
 #include <map>
@@ -52,6 +53,11 @@ struct DBCharacter {
 
 struct DBStageGeometry {
     db::StageGeometry geo;
+};
+
+struct DBStory {
+    std::string name;
+    db::story::Story story;
 };
 
 struct DBTalk {
@@ -94,6 +100,28 @@ const db::scn::Token* token_at(const DBScript* s, int32_t p, int32_t t) {
     const db::scn::Page* pg = page_at(s, p);
     if (!pg || t < 0 || size_t(t) >= pg->text->tokens.size()) return nullptr;
     return &pg->text->tokens[size_t(t)];
+}
+const db::story::Page* story_page(const DBStory* s, int32_t i) {
+    return s && i >= 0 && size_t(i) < s->story.pages.size() ? &s->story.pages[size_t(i)] : nullptr;
+}
+const char* out_str(const std::string& v, int32_t* len) {
+    if (len) *len = int32_t(v.size());
+    return v.c_str();
+}
+// Decodes an image entry; a .bmp name is mapped to .cnv as the engine does.
+bool load_rgba(void* ctx, const std::string& name, std::vector<uint8_t>& rgba, int& w, int& h) {
+    const db::ArchiveSet& set = static_cast<DBArchives*>(ctx)->set;
+    const std::string low = db::lower_ascii(name);
+    const std::string entry = low.size() > 4 && low.compare(low.size() - 4, 4, ".cnv") == 0 ? name : db::cnv_name(name);
+    const db::Entry* e = set.find(entry);
+    std::vector<uint8_t> d;
+    db::Image img;
+    std::string err;
+    if (!e || !set.read(*e, d, &err) || !db::decode_image(d, img, &err)) return false;
+    rgba = std::move(img.rgba);
+    w = int(img.width);
+    h = int(img.height);
+    return true;
 }
 }  // namespace
 
@@ -617,6 +645,71 @@ int32_t db_talk_set_mask(DBTalk* t, uint32_t code, const uint8_t* coverage, int3
     m.top = top;
     m.coverage.assign(coverage, coverage + size_t(w) * size_t(h));
     t->masks[uint16_t(code)] = std::move(m);
+    return 1;
+}
+
+DBStory* db_story_load(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len) {
+    if (!a || !name || name_len <= 0) {
+        set_err(err, err_len, "no archive or name");
+        return nullptr;
+    }
+    const std::string entry(name, size_t(name_len));
+    const db::Entry* e = a->set.find(entry);
+    std::vector<uint8_t> data;
+    std::string msg = "missing: " + entry;
+    if (!e || !a->set.read(*e, data, &msg)) {
+        set_err(err, err_len, msg);
+        return nullptr;
+    }
+    auto* s = new (std::nothrow) DBStory;
+    if (!s) {
+        set_err(err, err_len, "out of memory");
+        return nullptr;
+    }
+    s->name = entry;
+    s->story = db::story::parse(std::string(data.begin(), data.end()));
+    for (auto& p : s->story.pages) {
+        // Story voices carry their voicedir; win quotes are bare names resolved like the
+        // game's two voice folders (audio.h).
+        if (p.voice.empty()) continue;
+        if (p.voice.find('/') != std::string::npos) {
+            const std::string cnv = db::cnv_name(p.voice);
+            p.voice = a->set.find(cnv) ? cnv : "";
+        } else {
+            p.voice = db::voice_entry(a->set, p.voice);
+        }
+    }
+    set_err(err, err_len, "");
+    return s;
+}
+
+void db_story_free(DBStory* s) { delete s; }
+int32_t db_story_page_count(const DBStory* s) { return s ? int32_t(s->story.pages.size()) : 0; }
+
+
+const char* db_story_page_text(const DBStory* s, int32_t i, int32_t* len) {
+    const auto* p = story_page(s, i);
+    return p ? out_str(p->text, len) : nullptr;
+}
+const char* db_story_page_voice(const DBStory* s, int32_t i, int32_t* len) {
+    const auto* p = story_page(s, i);
+    return p ? out_str(p->voice, len) : nullptr;
+}
+const char* db_story_page_bgm(const DBStory* s, int32_t i, int32_t* len) {
+    const auto* p = story_page(s, i);
+    return p ? out_str(p->scene.bgm, len) : nullptr;
+}
+int32_t db_story_page_sleep_ms(const DBStory* s, int32_t i) {
+    const auto* p = story_page(s, i);
+    return p ? p->sleep_ms : 0;
+}
+
+int32_t db_story_background(DBArchives* a, const DBStory* s, int32_t i, uint8_t* out) {
+    const auto* p = story_page(s, i);
+    if (!a || !p || !out) return 0;
+    const std::vector<uint8_t> bg = s->story.has_commands ? db::story::compose(p->scene, load_rgba, a)
+                                                          : db::talk::background(s->name, load_rgba, a);
+    memcpy(out, bg.data(), bg.size());
     return 1;
 }
 

@@ -59,6 +59,9 @@ final class GlyphRasterizer {
 struct TalkPage: Equatable {
     let voice: String
     let text: [UInt8]  // raw cp932, commands included
+    var voiceEntry: [UInt8] = []  // archive entry of the voice clip (story scripts)
+    var bgm: [UInt8] = []         // archive entry of the music playing on this page
+    var index = 0                 // page number in its story
 }
 
 /// The talk scene's text box over a script, through the C API (port/src/talk.h).
@@ -68,6 +71,7 @@ final class TalkBook {
     private let window: (width: Int, height: Int, rgba: Data)?
     private let glyphs = GlyphRasterizer()
     private let scopedURLs: [URL]
+    private var story: OpaquePointer?  // the script last opened with pages(script:)
 
     init(urls: [URL]) throws {
         let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
@@ -99,6 +103,7 @@ final class TalkBook {
     }
 
     deinit {
+        if let story { db_story_free(story) }
         db_archives_free(archives)
         scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
     }
@@ -111,16 +116,41 @@ final class TalkBook {
         return pages(s)
     }
 
+    /// Opens a script as the talk scene plays it (port/src/story.h): text pages with their
+    /// voice, music and scene. Keeps it open for storyBackground(page:).
     func pages(script name: [UInt8]) throws -> [TalkPage] {
         var err = [CChar](repeating: 0, count: 256)
         let s = name.withUnsafeBufferPointer { b in
             b.baseAddress!.withMemoryRebound(to: CChar.self, capacity: b.count) {
-                db_script_load(archives, $0, Int32(b.count), &err, Int32(err.count))
+                db_story_load(archives, $0, Int32(b.count), &err, Int32(err.count))
             }
         }
         guard let s else { throw ReportError.open(message(err)) }
-        defer { db_script_free(s) }
-        return Self.pages(s)
+        if let story { db_story_free(story) }
+        story = s
+        func bytes(_ p: UnsafePointer<CChar>?, _ len: Int32) -> [UInt8] {
+            p.map { Array(UnsafeRawBufferPointer(start: $0, count: Int(len))) } ?? []
+        }
+        return (0..<db_story_page_count(s)).map { i in
+            var len: Int32 = 0
+            let text = bytes(db_story_page_text(s, i, &len), len)
+            let voice = bytes(db_story_page_voice(s, i, &len), len)
+            let bgm = bytes(db_story_page_bgm(s, i, &len), len)
+            let shown = String(decoding: voice.split(separator: UInt8(ascii: "/")).last ?? [], as: UTF8.self)
+            return TalkPage(voice: shown, text: text, voiceEntry: voice, bgm: bgm, index: Int(i))
+        }
+    }
+
+    /// The page's 800x600 background (scene and portraits) from the open script.
+    func storyBackground(page: Int) -> [UInt8]? {
+        guard let story else { return nil }
+        var out = [UInt8](repeating: 0, count: Int(DB_TALK_WIDTH) * Int(DB_TALK_HEIGHT) * 4)
+        return db_story_background(archives, story, Int32(page), &out) == 1 ? out : nil
+    }
+
+    /// The music entry decoded (music loops at its .sfl points).
+    func music(_ entry: [UInt8]) -> DecodedSound? {
+        entry.isEmpty ? nil : try? DecodedSound.load(archives, entry)
     }
 
     private static func pages(_ s: OpaquePointer) -> [TalkPage] {
@@ -152,6 +182,7 @@ final class TalkBook {
 
     /// The page's voice clip, decoded, if the archives have it.
     func voice(_ page: TalkPage) -> DecodedSound? {
+        if !page.voiceEntry.isEmpty { return try? DecodedSound.load(archives, page.voiceEntry) }
         guard !page.voice.isEmpty else { return nil }
         var out = [CChar](repeating: 0, count: 256)
         let bytes = Array(page.voice.utf8)

@@ -13,6 +13,7 @@
 #include "../src/archive.h"
 #include "../src/daybreak_c.h"
 #include "../src/scenario.h"
+#include "../src/story.h"
 #include "../src/talk.h"
 
 using namespace db;
@@ -225,6 +226,49 @@ int main(int argc, char** argv) {
         check(at(33, 452 + 20, 0) < 128, "shadow at +3,+3 darkens the window");
         f = compose({}, window, 780, 200, text, q, 0, true);
         check(at(21, 451, 0) == 128 && at(721, 551, 0) == 255, "nothing revealed yet; arrow at (720,550)");
+    }
+
+    // Story scenes (src/story.h): commands build the scene; text lines are pages.
+    {
+        namespace st = db::story;
+        const std::string src =
+            "#comment\r\ncharacterdir data/talk/\r\nbgm bgm01.ogg\r\nbg data/talk/back12.bmp\r\n"
+            "voicedir data/voice/scenario/D60/\r\n"
+            "character c13-0.bmp,0,1,300\r\ncharacter c01-0.bmp,2,1,500\r\ncharacter c05-1.bmp,3,0\r\n"
+            "VOICE D60-001-05.wav\r\nFirst page\r\n"
+            "move 3,-280,30\r\nfront 0\r\nsleep 500\r\nSecond page\r\n"
+            "character ,2,0\r\nThird\r\n" + std::string(8, '\0');
+        const st::Story s = st::parse(src);
+        check(s.has_commands && s.pages.size() == 3, "three text pages, commands detected");
+        const st::Page& p0 = s.pages[0];
+        check(p0.text == "First page" && p0.voice == "data/voice/scenario/D60/D60-001-05.wav" &&
+                  p0.scene.bgm == "data/bgm/bgm01.ogg" && p0.scene.background == "data/talk/back12.bmp",
+              "page: text, voice with voicedir, music, background");
+        check(p0.scene.slots[0].image == "data/talk/c13-0.bmp" && p0.scene.slots[0].x == 300 &&
+                  !p0.scene.slots[0].mirrored && p0.scene.slots[2].mirrored && p0.scene.slots[3].x == 0,
+              "character: slot, x when the flag is set, slots > 1 mirrored");
+        const st::Page& p1 = s.pages[1];
+        check(p1.voice.empty() && p1.scene.slots[3].x == -280 && p1.sleep_ms == 500, "move ends at its x; sleep");
+        check(p1.scene.order[5] == 0 && p1.scene.order[0] == 1, "front moves the slot to the end of the draw order");
+        check(s.pages[2].scene.slots[2].image.empty(), "an empty file name clears the slot");
+        check(!st::parse("VOICE W01-01-1.wav\r\nHello\r\n").has_commands, "win quote: no commands");
+
+        // Compose: a 1x1 red background drawn at (0,0) as is; a
+        // 2x2 portrait in slot 2 (mirrored) at x = 400 -> drawn at (144, 88).
+        struct Imgs {
+            static bool load(void*, const std::string& n, std::vector<uint8_t>& rgba, int& w, int& h) {
+                if (n == "bg.bmp") { rgba = {255, 0, 0, 255}; w = h = 1; return true; }
+                if (n == "p.bmp") { rgba = {0, 0, 255, 255, 0, 255, 0, 255, 0, 0, 255, 255, 0, 255, 0, 255}; w = h = 2; return true; }
+                return false;
+            }
+        };
+        st::Scene sc;
+        sc.background = "bg.bmp";
+        sc.slots[2] = {"p.bmp", 400, true};
+        const std::vector<uint8_t> f = st::compose(sc, Imgs::load, nullptr);
+        auto at = [&](int x, int y, int ch) { return int(f[size_t((y * 800 + x) * 4 + ch)]); };
+        check(at(0, 0, 0) == 255 && at(1, 0, 0) == 0, "background drawn at (0,0)");
+        check(at(144, 88, 1) == 255 && at(145, 88, 2) == 255, "mirrored portrait at (x - 256, 88)");
     }
 
     // C API.
