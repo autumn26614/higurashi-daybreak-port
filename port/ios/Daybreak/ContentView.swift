@@ -15,7 +15,7 @@ enum ArchiveMode: String, CaseIterable, Identifiable {
     var id: Self { self }
     var stage: Int32 { self == .kai ? 16 : 1 }
     var pickLabel: String {
-        self == .kai ? "Choose daybreak00.dat + daybreak04.dat" : "Choose daybreak00.dat"
+        self == .kai ? "Choose daybreak00 + 04 (+ 05 for music)" : "Choose daybreak00 (+ 01 for music)"
     }
 }
 
@@ -67,7 +67,7 @@ struct ContentView: View {
             }
             .navigationTitle(String(format: "Stage %02d", stage))
             .fileImporter(isPresented: $showPicker, allowedContentTypes: [.item],
-                          allowsMultipleSelection: mode == .kai) { result in
+                          allowsMultipleSelection: true) { result in
                 switch result {
                 case .failure(let error):
                     errorText = error.localizedDescription
@@ -118,6 +118,18 @@ struct ContentView: View {
                 Label("Read scenario scripts", systemImage: "text.bubble")
             }
             .accessibilityIdentifier("scripts")
+            NavigationLink {
+                CharacterList(urls: archiveURLs)
+            } label: {
+                Label("Characters", systemImage: "figure.stand")
+            }
+            .accessibilityIdentifier("characters")
+            NavigationLink {
+                SoundTestView(urls: archiveURLs)
+            } label: {
+                Label("Sound test", systemImage: "music.note")
+            }
+            .accessibilityIdentifier("soundTest")
         }
         Section("Meshes (slots 00–07), expected: \(expected.label)") {
             check("Plain set (game default)", "\(r.plainMeshes) meshes / \(r.plainTriangles) tris",

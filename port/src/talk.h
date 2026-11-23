@@ -90,5 +90,15 @@ std::vector<uint8_t> compose(const std::vector<uint8_t>& background, const std::
                              int window_w, int window_h, const std::vector<uint8_t>& text_bitmap, const Params& p,
                              size_t reveal, bool arrow);
 
+// Background for a script, 800x600 RGBA (black where nothing is drawn). Win quotes
+// (data/scenario/win/AA-BB-k.txt) show the two characters' portraits data/win/AAa and
+// BBa (512x512 with alpha) at (-32,60) and (352,60), as the win screen draws its
+// sprites at 0x5B78E5 / 0x5B78FD. Other scripts: black (the story scenes' portrait
+// choice, data/talk/cNN-M, was not traced). `load_rgba` decodes an image entry.
+std::vector<uint8_t> background(const std::string& script_name,
+                                bool (*load_rgba)(void* ctx, const std::string& name, std::vector<uint8_t>& rgba,
+                                                  int& w, int& h),
+                                void* ctx);
+
 }  // namespace talk
 }  // namespace db

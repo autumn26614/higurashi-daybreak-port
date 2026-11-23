@@ -140,23 +140,43 @@ final class StageRenderer: NSObject, MTKViewDelegate {
         if let tex = makeTexture(StageTexture(levels: [w])) { white = tex }
     }
 
+    /// Fog and clear colour of what is drawn (a stage's env.dat; none for characters).
+    struct Fog {
+        var start: Float = 0, end: Float = 0
+        var color = SIMD3<Float>(0, 0, 0)
+    }
+    var fog = Fog()
+    private var textureCache: [[UInt8]: MTLTexture] = [:]
+
     /// Uploads the scene's batches and textures. Textures get the game's authored mip
     /// levels where they exist; the rest of the chain is generated.
     func load(_ scene: StageScene) {
-        var textures: [[UInt8]: MTLTexture] = [:]
-        for (name, t) in scene.textures {
-            if let tex = makeTexture(t) { textures[name] = tex }
+        setTextures(scene.textures)
+        setBatches(scene.batches)
+        fog = Fog(start: scene.fogStart, end: scene.fogEnd, color: scene.fogColor)
+        self.scene = scene
+        if camera == nil { camera = scene.defaultCamera }
+    }
+
+    /// Replaces the texture set (uploaded once; batches refer to textures by entry name).
+    func setTextures(_ textures: [[UInt8]: StageTexture]) {
+        textureCache = [:]
+        for (name, t) in textures {
+            if let tex = makeTexture(t) { textureCache[name] = tex }
         }
-        gpu = scene.batches.compactMap { b in
+    }
+
+    /// Replaces the geometry, keeping the textures: cheap enough to call every frame for
+    /// an animated character (a few thousand vertices).
+    func setBatches(_ batches: [StageBatch]) {
+        gpu = batches.compactMap { b in
             guard !b.indices.isEmpty,
                   let vb = device.makeBuffer(bytes: b.vertices, length: b.vertices.count * MemoryLayout<StageVertex>.stride),
                   let ib = device.makeBuffer(bytes: b.indices, length: b.indices.count * 4)
             else { return nil }
             return GPUBatch(slot: b.slot, power: b.power, vertices: vb, indices: ib, indexCount: b.indices.count,
-                            texture: b.textureFound ? textures[b.textureName] : nil)
+                            texture: b.textureFound ? textureCache[b.textureName] : nil)
         }
-        self.scene = scene
-        if camera == nil { camera = scene.defaultCamera }
     }
 
     /// Private-storage texture filled by blits from a staging buffer, which works the same
@@ -191,10 +211,10 @@ final class StageRenderer: NSObject, MTKViewDelegate {
 
     /// Encodes the stage into `encoder` (its pass must have colour + depth attachments).
     func encode(_ encoder: MTLRenderCommandEncoder, aspect: Float) {
-        guard let scene, let camera else { return }
+        guard let camera, !gpu.isEmpty else { return }
         let m = camera.matrices(aspect: aspect)
-        var u = StageUniforms(viewProj: m.proj * m.view, view: m.view, fogColor: SIMD4(scene.fogColor, 1),
-                              fogStart: scene.fogStart, fogEnd: scene.fogEnd, fog: 0, alphaTest: 0)
+        var u = StageUniforms(viewProj: m.proj * m.view, view: m.view, fogColor: SIMD4(fog.color, 1),
+                              fogStart: fog.start, fogEnd: fog.end, fog: 0, alphaTest: 0)
         encoder.setCullMode(.back)
         encoder.setFrontFacing(.clockwise)  // D3D CULLMODE=CCW culls counter-clockwise faces
         for pass in StagePass.recipe {
@@ -222,7 +242,7 @@ final class StageRenderer: NSObject, MTKViewDelegate {
     }
 
     private var clearColor: MTLClearColor {
-        guard let c = scene?.fogColor else { return MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1) }
+        let c = fog.color
         return MTLClearColor(red: Double(c.x), green: Double(c.y), blue: Double(c.z), alpha: 1)
     }
 

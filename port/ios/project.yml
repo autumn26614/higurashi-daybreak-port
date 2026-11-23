@@ -1,6 +1,6 @@
 # XcodeGen spec (https://github.com/yonaskolb/XcodeGen): `xcodegen generate` in this folder
-# creates DaybreakStageViewer.xcodeproj. Manual setup without XcodeGen: see README.md.
-name: DaybreakStageViewer
+# creates Daybreak.xcodeproj. Manual setup without XcodeGen: see README.md.
+name: Daybreak
 options:
   bundleIdPrefix: io.github.autumn26614
   deploymentTarget:
@@ -9,11 +9,11 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
 targets:
-  DaybreakStageViewer:
+  Daybreak:
     type: application
     platform: iOS
     sources:
-      - path: DaybreakStageViewer
+      - path: Daybreak
       - path: ../src
         excludes:
           - stageinfo.cpp   # CLI entry point (has its own main)
@@ -22,30 +22,30 @@ targets:
       - path: Fixtures      # synthetic fixture.dat, used with -useBundledFixture
         buildPhase: resources
     info:
-      path: DaybreakStageViewer/Info.plist
+      path: Daybreak/Info.plist
       properties:
-        CFBundleDisplayName: Daybreak Stage
+        CFBundleDisplayName: Daybreak
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
-        # Archives copied into the app's folder (Files: On My iPhone > Daybreak Stage, or
+        # Archives copied into the app's folder (Files: On My iPhone > Daybreak, or
         # Finder file sharing) are found at launch; see DocumentsFolder.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.DaybreakStageViewer
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.daybreak
         MARKETING_VERSION: "0.2"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1"   # iPhone
-        SWIFT_OBJC_BRIDGING_HEADER: DaybreakStageViewer/Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: Daybreak/Bridging-Header.h
         HEADER_SEARCH_PATHS: $(SRCROOT)/../src
         CLANG_CXX_LANGUAGE_STANDARD: c++17
         GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "DB_NO_ICONV=1"]
 
-  DaybreakStageViewerTests:
+  DaybreakTests:
     type: bundle.unit-test
     platform: iOS
     sources:
@@ -53,34 +53,34 @@ targets:
       - path: Fixtures
         buildPhase: resources
     dependencies:
-      - target: DaybreakStageViewer
+      - target: Daybreak
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.DaybreakStageViewerTests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.daybreak.tests
         GENERATE_INFOPLIST_FILE: YES
         # @testable import of an app that uses a bridging header needs the same header here.
-        SWIFT_OBJC_BRIDGING_HEADER: DaybreakStageViewer/Bridging-Header.h
+        SWIFT_OBJC_BRIDGING_HEADER: Daybreak/Bridging-Header.h
         HEADER_SEARCH_PATHS: $(SRCROOT)/../src
 
-  DaybreakStageViewerUITests:
+  DaybreakUITests:
     type: bundle.ui-testing
     platform: iOS
     sources:
       - path: Tests/UI
     dependencies:
-      - target: DaybreakStageViewer
+      - target: Daybreak
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.DaybreakStageViewerUITests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.daybreak.uitests
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:
-  DaybreakStageViewer:
+  Daybreak:
     build:
       targets:
-        DaybreakStageViewer: all
+        Daybreak: all
     test:
       config: Debug
       targets:
-        - DaybreakStageViewerTests
-        - DaybreakStageViewerUITests
+        - DaybreakTests
+        - DaybreakUITests

@@ -114,6 +114,39 @@ void db_camera_matrices(const DBCamera* c, float aspect, float view[16], float p
 int64_t db_render_reference(DBArchives* a, const DBStageGeometry* g, const DBCamera* c, int32_t width, int32_t height,
                             uint8_t* rgba);
 
+/* ---- Sound (src/audio.h) -------------------------------------------------------------
+ * Music (.ogg files under data/bgm, with .sfl loop points) and effects (data/se, data/sysse) in the
+ * set, sorted. A sound decodes to interleaved 16-bit PCM. */
+int32_t db_archives_sound_count(DBArchives* a);
+const char* db_archives_sound_name(DBArchives* a, int32_t i, int32_t* len);
+typedef struct DBSound DBSound;
+DBSound* db_sound_load(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len);
+void db_sound_free(DBSound* s);
+int32_t db_sound_channels(const DBSound* s);
+int32_t db_sound_rate(const DBSound* s);
+int64_t db_sound_frames(const DBSound* s);
+const int16_t* db_sound_samples(const DBSound* s);
+int64_t db_sound_loop_start(const DBSound* s); /* -1: play once */
+int64_t db_sound_loop_end(const DBSound* s);
+/* Archive entry for a scenario VOICE argument ("W05-08-1.wav"); writes "" if none.
+ * Returns the length written. */
+int32_t db_voice_entry(DBArchives* a, const char* voice, int32_t voice_len, char* out, int32_t out_len);
+
+/* ---- Characters (src/character.h) ---------------------------------------------------
+ * data/<name>/0N.X models across the set (first archive wins), sorted. A pose is
+ * returned as a DBStageGeometry (batches in slot 1, lighting baked into the vertex
+ * colours, no env) for the same renderers; free it with db_geometry_free. */
+int32_t db_archives_character_count(DBArchives* a);
+const char* db_archives_character_name(DBArchives* a, int32_t i, int32_t* len);
+typedef struct DBCharacter DBCharacter;
+DBCharacter* db_character_open(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len);
+void db_character_free(DBCharacter* c);
+int32_t db_character_anim_count(const DBCharacter* c);
+const char* db_character_anim_name(const DBCharacter* c, int32_t i, int32_t* len);
+double db_character_anim_seconds(const DBCharacter* c, int32_t i);
+DBStageGeometry* db_character_pose(const DBCharacter* c, int32_t anim, double seconds); /* anim -1: bind pose */
+int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out);
+
 /* Draw passes in game order (src/recipe.h). blend: 0 = alpha (SRCALPHA, INVSRCALPHA),
  * 1 = multiply (DESTCOLOR, ZERO), 2 = additive (SRCALPHA, ONE). A batch whose material
  * power != 0 is drawn additively with no Z-write and no fog, whatever its pass says. */
@@ -161,6 +194,9 @@ int32_t db_talk_lines(const DBTalk* t);
 int32_t db_talk_stopped(const DBTalk* t);    /* 1 if text ran past the box */
 int32_t db_talk_set_mask(DBTalk* t, uint32_t code, const uint8_t* coverage, int32_t width, int32_t height,
                          int32_t left, int32_t top);
+/* The script's background (src/talk.h, talk::background) into 800x600 RGBA: win quotes
+ * get the two characters' portraits, other scripts black. */
+int32_t db_talk_background(DBArchives* a, const char* script, int32_t script_len, uint8_t* out_rgba);
 /* background: 800x600 RGBA or NULL (black); window: decoded data/talk/window.cnv. */
 int32_t db_talk_compose(DBTalk* t, const uint8_t* background, const uint8_t* window, int32_t window_w,
                         int32_t window_h, int32_t reveal, int32_t arrow, uint8_t* out_rgba);

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct DaybreakStageViewerApp: App {
+struct DaybreakApp: App {
     var body: some Scene {
         WindowGroup { ContentView() }
     }

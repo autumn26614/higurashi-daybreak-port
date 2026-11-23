@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -11,7 +12,11 @@
 
 #include "../src/archive.h"
 #include "../src/daybreak_c.h"
+#include "../src/audio.h"
+#include "../src/character.h"
+#include "../src/cnv.h"
 #include "../src/geometry.h"
+#include "../src/talk.h"
 #include "../src/identify.h"
 #include "../src/stage.h"
 
@@ -180,6 +185,92 @@ std::string mesh(int tris) {
 
 // Archive roles come from entry count + a known member; language from scenario scripts.
 // Geometry extraction (src/geometry.h) and the draw recipe, on a hand-written stage.
+// Characters (src/character.h): a hand-written skinned model with one matrix-key
+// animation; audio (src/audio.h): a PCM .cnv and an .sfl loop; talk backgrounds.
+void character_audio_tests(const std::string& dir) {
+    // Bone "b" at the origin; a triangle fully weighted to it; the animation moves the
+    // bone by +10 in x at tick 80 (one frame at 60 fps).
+    const std::string x =
+        "xof 0303txt 0032\n"
+        "Frame root {\n FrameTransformMatrix { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1;; }\n"
+        " Frame b { FrameTransformMatrix { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1;; } }\n"
+        " Mesh m {\n  3;\n  0;0;0;, 1;0;0;, 0;1;0;;\n  1;\n  3;0,1,2;;\n"
+        "  MeshMaterialList { 1; 1; 0;; Material { 1;1;1;1;; 0; 0;0;0;; 0.25;0.5;0.75;; } }\n"
+        "  SkinWeights { \"b\"; 3; 0,1,2; 1.0,1.0,1.0; 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1;; }\n"
+        " }\n}\n"
+        "AnimationSet walk {\n Animation { {b}\n  AnimationKey { 4; 2;\n"
+        "   0; 16; 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1;;,\n"
+        "   80; 16; 1,0,0,0, 0,1,0,0, 0,0,1,0, 10,0,0,1;;;\n  }\n }\n}\n";
+    // PCM sound: WAVEFORMATEX (PCM, mono, 22050 Hz, 16 bit) + data_size + 2 samples.
+    std::string snd = {1, 0, 1, 0};
+    auto le = [](uint32_t v, int n) { std::string s; for (int i = 0; i < n; i++) s += char(v >> (8 * i)); return s; };
+    snd += le(22050, 4) + le(44100, 4) + le(2, 2) + le(16, 2) + le(0, 2) + le(4, 4) + le(1000, 2) + le(uint32_t(-1000) & 0xFFFF, 2);
+    // .sfl: RIFF SFPL, cue point at sample 100, ltxt region of 50 samples.
+    std::string cue = le(1, 4) + le(1, 4) + le(100, 4) + "data" + le(0, 4) + le(0, 4) + le(100, 4);
+    std::string ltxt = le(1, 4) + le(50, 4) + "rgn " + le(0, 2) + le(0, 2) + le(0, 2) + le(0, 2);
+    std::string list = "adtl" + std::string("ltxt") + le(uint32_t(ltxt.size()), 4) + ltxt;
+    std::string body = "SFPL" + std::string("cue ") + le(uint32_t(cue.size()), 4) + cue + "LIST" + le(uint32_t(list.size()), 4) + list;
+    const std::string sfl = "RIFF" + le(uint32_t(body.size()), 4) + body;
+    // Two 2x2 opaque "portraits": red and blue.
+    auto portrait = [&](uint8_t r, uint8_t b) {
+        std::string s = {32};
+        s += le(2, 4) + le(2, 4) + le(2, 4) + le(0, 4);
+        for (int i = 0; i < 4; i++) s += std::string{char(b), 0, char(r), char(255)};  // BGRA
+        return s;
+    };
+    const std::string path = dir + "/chars.dat";
+    Archive a;
+    std::string err;
+    check(write_archive(path, {{"data/hero/00.X", x}, {"data/se/hit.cnv", snd}, {"data/bgm/t.sfl", sfl},
+                               {"data/win/03a.cnv", portrait(255, 0)}, {"data/win/07a.cnv", portrait(0, 255)}},
+                        5) &&
+              a.open(path, &err),
+          "character archive opens");
+
+    Character c;
+    check(load_character(a, "data/hero/00.X", c, &err) && c.errors.empty(), "character loads");
+    check(c.meshes.size() == 1 && c.meshes[0].skin.size() == 1 && c.anims.size() == 1 && c.anims[0].ticks == 80,
+          "one skinned mesh, one animation of 80 ticks");
+    check(list_characters(a) == std::vector<std::string>{"data/hero/00.X"}, "character listed");
+    StageGeometry p0 = pose_character(c, -1, 0), p1 = pose_character(c, 0, 1.0 / 60), ph = pose_character(c, 0, 0.5 / 60);
+    check(p0.batches.size() == 1 && p0.batches[0].positions[3] == 1, "bind pose");
+    check(p1.batches.size() == 1 && std::abs(p1.batches[0].positions[3] - 11) < 1e-4, "key at tick 80 moves the bone +10");
+    check(std::abs(ph.batches[0].positions[3] - 6) < 1e-4, "halfway between keys");
+    // Winding (0,1,2) makes the normal +z (a front face seen from +z); the light comes from
+    // (-1, 1, -1)/sqrt3, so N . -L < 0 and only the emissive colour remains.
+    const GBatch& b = p0.batches[0];
+    check(b.colors[0] == 64 && b.colors[1] == 128 && b.colors[2] == 191, "back to the light: emissive only");
+    check(b.has_colors && b.colors[3] == 255, "opaque material alpha");
+
+    Pcm pcm;
+    check(load_sound(a, "data/se/hit.wav", pcm, &err) && pcm.channels == 1 && pcm.rate == 22050 &&
+              pcm.samples == std::vector<int16_t>{1000, -1000},
+          ".wav name maps to the .cnv PCM");
+    int64_t start = 0, len = 0;
+    const std::vector<uint8_t> sflv(sfl.begin(), sfl.end());
+    check(parse_sfl(sflv, start, len) && start == 100 && len == 50, ".sfl cue start and region length");
+    check(!parse_sfl(std::vector<uint8_t>(12, 0), start, len), "not an .sfl");
+    check(voice_entry(a, "nothing.wav").empty(), "unknown voice resolves to nothing");
+
+    // Win background: portrait 03 at (-32,60) left, 07 at (352,60) right; else black.
+    auto load = [](void* ctx, const std::string& name, std::vector<uint8_t>& rgba, int& w, int& h) {
+        const Archive& ar = *static_cast<const Archive*>(ctx);
+        const Entry* e = ar.find(name);
+        std::vector<uint8_t> d;
+        Image img;
+        std::string e2;
+        if (!e || !ar.read(*e, d, &e2) || !decode_image(d, img, &e2)) return false;
+        rgba = img.rgba, w = int(img.width), h = int(img.height);
+        return true;
+    };
+    std::vector<uint8_t> bg = talk::background("data/scenario/win/03-07-2.txt", load, &a);
+    auto px = [&](int xx, int yy, int ch) { return int(bg[size_t((yy * 800 + xx) * 4 + ch)]); };
+    check(px(353, 61, 2) == 255 && px(353, 61, 0) == 0, "right portrait at (352,60)");
+    check(px(0, 0, 0) == 0 && px(0, 60, 0) == 0, "left portrait is off screen for a 2x2 image at x=-32");
+    bg = talk::background("data/scenario/D60-0.txt", load, &a);
+    check(px(353, 61, 2) == 0, "story scripts: black background");
+}
+
 void geometry_tests(const std::string& dir) {
     // Slot 01: one quad (fan -> 2 triangles) with material 1 and one triangle with
     // material 0; vertex colours on two vertices; UVs; the material list has fewer
@@ -380,6 +471,7 @@ int main(int argc, char** argv) {
     validation_tests(argv[1]);
     identify_tests(argv[1]);
     geometry_tests(argv[1]);
+    character_audio_tests(argv[1]);
 
     printf("%s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;

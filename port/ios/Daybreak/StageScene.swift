@@ -132,28 +132,10 @@ final class StageScene {
         self.stage = stage
         self.variant = variant
 
-        var batches: [StageBatch] = []
+        let batches = StageScene.batches(of: geometry)
         var textures: [[UInt8]: StageTexture] = [:]
-        for i in 0..<db_geometry_batch_count(geometry) {
-            var b = DBBatch()
-            guard db_geometry_batch(geometry, i, &b) == 1 else { continue }
-            let n = Int(b.vertex_count)
-            var vertices = [StageVertex]()
-            vertices.reserveCapacity(n)
-            for v in 0..<n {
-                vertices.append(StageVertex(
-                    x: b.positions[v * 3], y: b.positions[v * 3 + 1], z: b.positions[v * 3 + 2],
-                    u: b.uvs[v * 2], v: b.uvs[v * 2 + 1],
-                    r: b.colors[v * 4], g: b.colors[v * 4 + 1], b: b.colors[v * 4 + 2], a: b.colors[v * 4 + 3]))
-            }
-            let indices = Array(UnsafeBufferPointer(start: b.indices, count: Int(b.index_count)))
-            let name: [UInt8] = b.texture_len > 0
-                ? Array(UnsafeRawBufferPointer(start: b.texture, count: Int(b.texture_len))) : []
-            if b.texture_found != 0, textures[name] == nil, let t = StageScene.loadTexture(archives, name) {
-                textures[name] = t
-            }
-            batches.append(StageBatch(slot: Int(b.slot), power: b.power, vertices: vertices, indices: indices,
-                                      textureName: name, textureFound: b.texture_found != 0))
+        for b in batches where b.textureFound && textures[b.textureName] == nil {
+            if let t = StageScene.loadTexture(archives, b.textureName) { textures[b.textureName] = t }
         }
         self.batches = batches
         self.textures = textures
@@ -190,7 +172,31 @@ final class StageScene {
 
     /// The base image plus the game's authored mip files "<name>_1.cnv", "_2", … while each
     /// halves the previous size (the texture loader 0x5D8830 probes them the same way).
-    private static func loadTexture(_ archives: OpaquePointer, _ name: [UInt8]) -> StageTexture? {
+    /// Copies every batch of a DBStageGeometry into Swift arrays.
+    static func batches(of geometry: OpaquePointer) -> [StageBatch] {
+        var batches: [StageBatch] = []
+        for i in 0..<db_geometry_batch_count(geometry) {
+            var b = DBBatch()
+            guard db_geometry_batch(geometry, i, &b) == 1 else { continue }
+            let n = Int(b.vertex_count)
+            var vertices = [StageVertex]()
+            vertices.reserveCapacity(n)
+            for v in 0..<n {
+                vertices.append(StageVertex(
+                    x: b.positions[v * 3], y: b.positions[v * 3 + 1], z: b.positions[v * 3 + 2],
+                    u: b.uvs[v * 2], v: b.uvs[v * 2 + 1],
+                    r: b.colors[v * 4], g: b.colors[v * 4 + 1], b: b.colors[v * 4 + 2], a: b.colors[v * 4 + 3]))
+            }
+            let indices = Array(UnsafeBufferPointer(start: b.indices, count: Int(b.index_count)))
+            let name: [UInt8] = b.texture_len > 0
+                ? Array(UnsafeRawBufferPointer(start: b.texture, count: Int(b.texture_len))) : []
+            batches.append(StageBatch(slot: Int(b.slot), power: b.power, vertices: vertices, indices: indices,
+                                      textureName: name, textureFound: b.texture_found != 0))
+        }
+        return batches
+    }
+
+    static func loadTexture(_ archives: OpaquePointer, _ name: [UInt8]) -> StageTexture? {
         guard let base = decode(archives, name) else { return nil }
         var levels = [base]
         let stem = name.count > 4 ? Array(name.dropLast(4)) : name  // drop ".cnv"

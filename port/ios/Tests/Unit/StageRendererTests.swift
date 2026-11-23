@@ -1,7 +1,7 @@
 import Metal
 import XCTest
 import simd
-@testable import DaybreakStageViewer
+@testable import Daybreak
 
 /// Stage geometry through the C API, the camera, and the Metal renderer checked pixel by
 /// pixel against the CPU reference renderer (port/src/raster.cpp), on the fixtures.

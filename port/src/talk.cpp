@@ -160,5 +160,29 @@ std::vector<uint8_t> compose(const std::vector<uint8_t>& background, const std::
     return out;
 }
 
+std::vector<uint8_t> background(const std::string& script_name,
+                                bool (*load_rgba)(void*, const std::string&, std::vector<uint8_t>&, int&, int&),
+                                void* ctx) {
+    std::vector<uint8_t> out(size_t(Frame::kWidth) * Frame::kHeight * 4, 0);
+    for (size_t i = 3; i < out.size(); i += 4) out[i] = 255;
+    std::string low = script_name;
+    for (auto& ch : low)
+        if (ch >= 'A' && ch <= 'Z') ch = char(ch - 'A' + 'a');
+    const std::string prefix = "data/scenario/win/";
+    if (low.rfind(prefix, 0) != 0 || low.size() < prefix.size() + 5) return out;
+    const std::string a = low.substr(prefix.size(), 2), b = low.substr(prefix.size() + 3, 2);
+    const float white[4] = {1, 1, 1, 1};
+    const std::string ids[2] = {a, b};
+    const int xs[2] = {-32, 352};
+    for (int i = 0; i < 2; i++) {
+        std::vector<uint8_t> img;
+        int w = 0, h = 0;
+        if (load_rgba && load_rgba(ctx, "data/win/" + ids[i] + "a.cnv", img, w, h) &&
+            img.size() == size_t(w) * size_t(h) * 4)
+            blit(out, img, w, h, 0, 0, w, h, xs[i], 60, white);
+    }
+    return out;
+}
+
 }  // namespace talk
 }  // namespace db

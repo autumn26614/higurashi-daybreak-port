@@ -74,7 +74,21 @@ inline Camera default_camera(const StageGeometry& g) {
     }
     const float size = std::max({x1 - x0, z1 - z0, float(g.bounds.hi[1] - g.bounds.lo[1]), 1.0f});
     c.target[0] = (x0 + x1) / 2, c.target[1] = y + 150, c.target[2] = (z0 + z1) / 2;
-    c.eye[0] = c.target[0], c.eye[1] = c.target[1] + 0.45f * size, c.eye[2] = z0 - 0.6f * size;
+    // Steep enough to clear trees and walls around the arena (stage 03 is ringed by forest).
+    c.eye[0] = c.target[0], c.eye[1] = c.target[1] + 0.6f * size, c.eye[2] = c.target[2] - 0.5f * size;
+    return c;
+}
+
+// Full-body view of a posed character: from its front (-z side), slightly above the
+// middle of its bounds.
+inline Camera character_camera(const StageGeometry& g) {
+    Camera c;
+    const Box& b = g.bounds;
+    const float h = std::max(float(b.hi[1] - b.lo[1]), 1.0f);
+    for (int k = 0; k < 3; k++) c.target[k] = float(b.lo[k] + b.hi[k]) / 2;
+    c.eye[0] = c.target[0], c.eye[1] = c.target[1] + 0.15f * h, c.eye[2] = c.target[2] - 2.6f * h;
+    c.z_near = 5;
+    c.z_far = 20000;
     return c;
 }
 

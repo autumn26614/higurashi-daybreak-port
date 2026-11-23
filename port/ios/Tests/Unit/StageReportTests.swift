@@ -1,5 +1,5 @@
 import XCTest
-@testable import DaybreakStageViewer
+@testable import Daybreak
 
 /// Swift → C API → C++ reader, on the synthetic fixture (port/tools/make_fixture.py).
 final class StageReportTests: XCTestCase {

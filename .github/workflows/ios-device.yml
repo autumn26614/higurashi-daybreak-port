@@ -35,8 +35,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -project DaybreakStageViewer.xcodeproj \
-            -scheme DaybreakStageViewer \
+            -project Daybreak.xcodeproj \
+            -scheme Daybreak \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
@@ -45,8 +45,8 @@ jobs:
 
       - name: Package and check for game data
         run: |
-          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakStageViewer.app"
-          file "$APP/DaybreakStageViewer" | tee /dev/stderr | grep -q arm64
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/Daybreak.app"
+          file "$APP/Daybreak" | tee /dev/stderr | grep -q arm64
           # Only the two synthetic fixtures may be .dat files, and nothing may be large.
           extra=$(find "$APP" -iname '*.dat' ! -name fixture.dat ! -name fixture-overlay.dat)
           if [ -n "$extra" ]; then echo "unexpected .dat in app: $extra"; exit 1; fi
@@ -54,12 +54,12 @@ jobs:
           if [ -n "$big" ]; then echo "unexpectedly large file in app: $big"; exit 1; fi
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
-          (cd "$RUNNER_TEMP/ipa" && zip -qry DaybreakStageViewer-unsigned.ipa Payload)
-          ls -l "$RUNNER_TEMP/ipa/DaybreakStageViewer-unsigned.ipa"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry Daybreak-unsigned.ipa Payload)
+          ls -l "$RUNNER_TEMP/ipa/Daybreak-unsigned.ipa"
 
       - name: Upload .ipa
         uses: actions/upload-artifact@v4
         with:
-          name: DaybreakStageViewer-unsigned-ipa
-          path: ${{ runner.temp }}/ipa/DaybreakStageViewer-unsigned.ipa
+          name: Daybreak-unsigned-ipa
+          path: ${{ runner.temp }}/ipa/Daybreak-unsigned.ipa
           retention-days: 7

@@ -140,7 +140,31 @@ final class TalkBook {
 
     /// Lays the page out and composes the 800x600 talk frame (RGBA). `reveal` is the
     /// game's counter (cells shown); returns the frame and the counter's end (strlen).
-    func frame(_ page: TalkPage, reveal: Int, arrow: Bool) -> (rgba: [UInt8], end: Int, stopped: Bool) {
+    /// The script's 800x600 background: win quotes show both characters' portraits.
+    func background(script name: [UInt8]) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: Int(DB_TALK_WIDTH) * Int(DB_TALK_HEIGHT) * 4)
+        name.withUnsafeBufferPointer { b in
+            guard let p = b.baseAddress else { return }
+            p.withMemoryRebound(to: CChar.self, capacity: b.count) { _ = db_talk_background(archives, $0, Int32(b.count), &out) }
+        }
+        return out
+    }
+
+    /// The page's voice clip, decoded, if the archives have it.
+    func voice(_ page: TalkPage) -> DecodedSound? {
+        guard !page.voice.isEmpty else { return nil }
+        var out = [CChar](repeating: 0, count: 256)
+        let bytes = Array(page.voice.utf8)
+        let n = bytes.withUnsafeBufferPointer { b in
+            b.baseAddress!.withMemoryRebound(to: CChar.self, capacity: b.count) {
+                db_voice_entry(archives, $0, Int32(b.count), &out, Int32(out.count))
+            }
+        }
+        guard n > 0 else { return nil }
+        return try? DecodedSound.load(archives, out.prefix(Int(n)).map { UInt8(bitPattern: $0) })
+    }
+
+    func frame(_ page: TalkPage, reveal: Int, arrow: Bool, background: [UInt8]? = nil) -> (rgba: [UInt8], end: Int, stopped: Bool) {
         let t = page.text.withUnsafeBufferPointer { b in
             b.baseAddress.map { $0.withMemoryRebound(to: CChar.self, capacity: b.count) { db_talk_layout($0, Int32(b.count)) } }
                 ?? db_talk_layout(nil, 0)
@@ -154,14 +178,23 @@ final class TalkBook {
             let m = glyphs.mask(code: code, bytes: Int(bytes))
             db_talk_set_mask(t, code, m.coverage, Int32(m.width), Int32(m.height), 0, 0)
         }
-        var out = [UInt8](repeating: 0, count: Int(DB_TALK_WIDTH) * Int(DB_TALK_HEIGHT) * 4)
-        if let w = window {
-            w.rgba.withUnsafeBytes { wb in
-                _ = db_talk_compose(t, nil, wb.bindMemory(to: UInt8.self).baseAddress, Int32(w.width), Int32(w.height),
-                                    Int32(reveal), arrow ? 1 : 0, &out)
+        let size = Int(DB_TALK_WIDTH) * Int(DB_TALK_HEIGHT) * 4
+        var out = [UInt8](repeating: 0, count: size)
+        let bg = background?.count == size ? background : nil
+        func compose(_ bgp: UnsafePointer<UInt8>?) {
+            if let w = window {
+                w.rgba.withUnsafeBytes { wb in
+                    _ = db_talk_compose(t, bgp, wb.bindMemory(to: UInt8.self).baseAddress, Int32(w.width),
+                                        Int32(w.height), Int32(reveal), arrow ? 1 : 0, &out)
+                }
+            } else {
+                _ = db_talk_compose(t, bgp, nil, 0, 0, Int32(reveal), arrow ? 1 : 0, &out)
             }
+        }
+        if let bg {
+            bg.withUnsafeBufferPointer { compose($0.baseAddress) }
         } else {
-            db_talk_compose(t, nil, nil, 0, 0, Int32(reveal), arrow ? 1 : 0, &out)
+            compose(nil)
         }
         return (out, Int(db_talk_text_bytes(t)), db_talk_stopped(t) != 0)
     }

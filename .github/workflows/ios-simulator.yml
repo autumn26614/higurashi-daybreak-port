@@ -75,8 +75,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -project DaybreakStageViewer.xcodeproj \
-            -scheme DaybreakStageViewer \
+            -project Daybreak.xcodeproj \
+            -scheme Daybreak \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath "$RUNNER_TEMP/TestResults.xcresult" \
             CODE_SIGNING_ALLOWED=NO \

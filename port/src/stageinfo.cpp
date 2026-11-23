@@ -6,6 +6,8 @@
 //   stageinfo <daybreak00.dat> --x <entry-name>   one .x file from the archive
 //   stageinfo <daybreak00.dat> --stages           list stage directories
 //   any form + --overlay <dat>                    search <dat> first (Kai: daybreak04.dat)
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,7 +16,9 @@
 #include <vector>
 
 #include "archive.h"
+#include "audio.h"
 #include "cnv.h"
+#include "scenario.h"
 #include "geometry.h"
 #include "identify.h"
 #include "png.h"
@@ -267,6 +271,74 @@ int main(int argc, char** argv) {
     if (arg == "--x" && args.size() >= 3) return run_x(set, args[2]);
     if (arg == "--cnv" && args.size() >= 4) return run_cnv(set, args[2], args[3]);
     if (arg == "--cnv-check") return run_cnv_check(archives, paths);
+    if (arg == "--wav" && args.size() >= 4) {
+        // One sound to a 16-bit WAV file, plus its level.
+        Pcm p;
+        if (!load_sound(set, args[2], p, &err)) {
+            fprintf(stderr, "%s\n", err.c_str());
+            return 1;
+        }
+        double sq = 0;
+        int peak = 0;
+        for (int16_t s : p.samples) sq += double(s) * s, peak = std::max(peak, std::abs(int(s)));
+        std::vector<uint8_t> w;
+        auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; i++) w.push_back(uint8_t(v >> (8 * i))); };
+        auto u16 = [&](uint16_t v) { w.push_back(uint8_t(v)), w.push_back(uint8_t(v >> 8)); };
+        const uint32_t bytes = uint32_t(p.samples.size() * 2);
+        w.insert(w.end(), {'R', 'I', 'F', 'F'}), u32(36 + bytes), w.insert(w.end(), {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '});
+        u32(16), u16(1), u16(uint16_t(p.channels)), u32(uint32_t(p.rate)), u32(uint32_t(p.rate * p.channels * 2));
+        u16(uint16_t(p.channels * 2)), u16(16), w.insert(w.end(), {'d', 'a', 't', 'a'}), u32(bytes);
+        for (int16_t s : p.samples) u16(uint16_t(s));
+        if (!write_file(args[3], w, &err)) return 1;
+        printf("%s: %d ch %d Hz, %zu frames, rms %.0f, peak %d\n", args[2].c_str(), p.channels, p.rate,
+               p.samples.size() / size_t(p.channels), std::sqrt(sq / double(std::max<size_t>(1, p.samples.size()))), peak);
+        return 0;
+    }
+    if (arg == "--sounds") {
+        // Decode every BGM / effect, and resolve every scenario VOICE line to an entry.
+        int ok = 0, bad = 0, looped = 0;
+        double seconds = 0;
+        for (const auto& ar : archives)
+            for (const auto& e : ar.entries()) {
+                const std::string low = lower_ascii(e.name);
+                const bool bgm = low.rfind("data/bgm/", 0) == 0 && low.size() > 4 && low.compare(low.size() - 4, 4, ".ogg") == 0;
+                const bool se = (low.rfind("data/se/", 0) == 0 || low.rfind("data/sysse/", 0) == 0);
+                if (!bgm && !se) continue;
+                Pcm p;
+                std::string err2;
+                if (!load_sound(set, e.name, p, &err2)) {
+                    printf("  %s: %s\n", e.name.c_str(), err2.c_str());
+                    bad++;
+                    continue;
+                }
+                ok++;
+                seconds += double(p.samples.size()) / p.channels / p.rate;
+                if (p.loop_start >= 0) looped++;
+                if (bgm)
+                    printf("  %s: %d ch %d Hz %.1f s, loop %lld..%lld\n", e.name.c_str(), p.channels, p.rate,
+                           double(p.samples.size()) / p.channels / p.rate, (long long)p.loop_start, (long long)p.loop_end);
+            }
+        printf("%d sounds decoded (%.0f s, %d looped), %d failed\n", ok, seconds, looped, bad);
+        int voices = 0, found = 0;
+        std::vector<uint8_t> d;
+        for (const auto& ar : archives)
+            for (const auto& e : ar.entries()) {
+                const std::string low = lower_ascii(e.name);
+                if (low.rfind("data/scenario/", 0) != 0 || low.compare(low.size() - 4, 4, ".txt") != 0) continue;
+                std::string err2;
+                if (!ar.read(e, d, &err2)) continue;
+                const scn::Script s = scn::parse(std::string(d.begin(), d.end()));
+                for (const auto& ln : s.lines)
+                    if (ln.voice) {
+                        voices++;
+                        const std::string v = voice_entry(set, ln.voice_file);
+                        if (!v.empty()) found++;
+                        else if (voices - found <= 5) printf("  voice not found: %s\n", ln.voice_file.c_str());
+                    }
+            }
+        printf("%d VOICE lines, %d resolved\n", voices, found);
+        return bad ? 1 : 0;
+    }
     if (arg == "--geometry") {
         // Every stage: batches from geometry.cpp against the counting reader's triangles.
         int rc = 0;

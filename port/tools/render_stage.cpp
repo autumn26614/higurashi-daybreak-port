@@ -11,6 +11,7 @@
 
 #include "../src/archive.h"
 #include "../src/camera.h"
+#include "../src/character.h"
 #include "../src/geometry.h"
 #include "../src/png.h"
 #include "../src/raster.h"
@@ -26,12 +27,16 @@ int main(int argc, char** argv) {
     int variant = 0, W = 960, H = 540;
     float eye[3], target[3];
     bool have_eye = false, have_target = false;
+    int anim = -1;
+    double seconds = 0;
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--overlay") && i + 1 < argc) overlays.push_back(argv[++i]);
         else if (!strcmp(argv[i], "--variant") && i + 1 < argc) variant = argv[++i][0] == 'b';
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &W, &H);
         else if (!strcmp(argv[i], "--eye") && i + 1 < argc) have_eye = parse3(argv[++i], eye);
         else if (!strcmp(argv[i], "--target") && i + 1 < argc) have_target = parse3(argv[++i], target);
+        else if (!strcmp(argv[i], "--anim") && i + 1 < argc) anim = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--time") && i + 1 < argc) seconds = atof(argv[++i]);
         else args.push_back(argv[i]);
     }
     if (args.size() != 3 || W <= 0 || H <= 0) {
@@ -51,12 +56,26 @@ int main(int argc, char** argv) {
         }
         set.attach(&archives[i]);
     }
-    const StageGeometry g = load_stage_geometry(set, atoi(args[1].c_str()), variant);
+    // A stage number, or a character model ("data/rena/00.X") posed with --anim / --time.
+    StageGeometry g;
+    const bool is_character = args[1].rfind("data/", 0) == 0;
+    if (is_character) {
+        Character c;
+        if (!load_character(set, args[1], c, &err)) {
+            fprintf(stderr, "%s\n", err.c_str());
+            return 1;
+        }
+        g = pose_character(c, anim, seconds);
+        printf("%s: %zu nodes, %zu meshes, %zu animations, %zu errors\n", args[1].c_str(), c.nodes.size(),
+               c.meshes.size(), c.anims.size(), c.errors.size());
+    } else {
+        g = load_stage_geometry(set, atoi(args[1].c_str()), variant);
+    }
     if (g.batches.empty()) {
-        fprintf(stderr, "stage has no meshes\n");
+        fprintf(stderr, "nothing to draw\n");
         return 1;
     }
-    Camera cam = default_camera(g);
+    Camera cam = is_character ? character_camera(g) : default_camera(g);
     if (have_eye) std::copy(eye, eye + 3, cam.eye);
     if (have_target) std::copy(target, target + 3, cam.target);
     std::vector<uint8_t> out;

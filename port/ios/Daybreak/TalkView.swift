@@ -49,6 +49,8 @@ struct TalkView: View {
     @State private var end = 0
     @State private var image: CGImage?
     @State private var errorText: String?
+    @State private var background: [UInt8]?
+    @State private var player = SoundPlayer()
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -82,11 +84,14 @@ struct TalkView: View {
         .task {
             do {
                 pages = try book.pages(script: scriptName)
+                background = book.background(script: scriptName)
+                playVoice()
                 redraw()
             } catch {
                 errorText = error.localizedDescription
             }
         }
+        .onDisappear { player.stop() }
         .onReceive(tick) { _ in
             guard !pages.isEmpty else { return }
             if counter < end {
@@ -109,6 +114,7 @@ struct TalkView: View {
         } else if index + 1 < pages.count {
             index += 1
             counter = -30
+            playVoice()
             arrowFrame = 0
         }
         redraw()
@@ -117,8 +123,16 @@ struct TalkView: View {
     private func redraw() {
         guard index < pages.count else { return }
         let arrow = counter >= end && (arrowFrame % 60) < 30
-        let f = book.frame(pages[index], reveal: max(0, counter), arrow: arrow)
+        let f = book.frame(pages[index], reveal: max(0, counter), arrow: arrow, background: background)
         end = f.end
         image = TalkBook.cgImage(f.rgba)
+    }
+}
+
+extension TalkView {
+    /// The page's voice, as the game plays it when the page opens.
+    fileprivate func playVoice() {
+        guard index < pages.count else { return }
+        if let v = book.voice(pages[index]) { player.play(v) } else { player.stop() }
     }
 }

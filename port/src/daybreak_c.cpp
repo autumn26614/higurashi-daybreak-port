@@ -9,9 +9,11 @@
 #include <vector>
 
 #include "archive.h"
+#include "audio.h"
 #include "cnv.h"
 #include "geometry.h"
 #include "camera.h"
+#include "character.h"
 #include "raster.h"
 #include "recipe.h"
 #include "identify.h"
@@ -34,6 +36,18 @@ struct DBArchives {
     db::ArchiveSet set;
     bool scripts_listed = false;
     std::vector<std::string> scripts;  // filled by db_archives_script_count
+    bool characters_listed = false;
+    bool sounds_listed = false;
+    std::vector<std::string> sounds;  // filled by db_archives_sound_count
+    std::vector<std::string> characters;  // filled by db_archives_character_count
+};
+
+struct DBSound {
+    db::Pcm pcm;
+};
+
+struct DBCharacter {
+    db::Character c;
 };
 
 struct DBStageGeometry {
@@ -330,6 +344,146 @@ int64_t db_render_reference(DBArchives* a, const DBStageGeometry* g, const DBCam
     return drawn;
 }
 
+int32_t db_archives_sound_count(DBArchives* a) {
+    if (!a) return 0;
+    if (!a->sounds_listed) {
+        std::set<std::string> seen;
+        for (const db::Archive* ar : a->set.archives())
+            for (const db::Entry& e : ar->entries()) {
+                const std::string low = db::lower_ascii(e.name);
+                const bool bgm = low.rfind("data/bgm/", 0) == 0 && low.size() > 4 && low.compare(low.size() - 4, 4, ".ogg") == 0;
+                const bool se = (low.rfind("data/se/", 0) == 0 || low.rfind("data/sysse/", 0) == 0) && low.size() > 4 &&
+                                low.compare(low.size() - 4, 4, ".cnv") == 0;
+                if ((bgm || se) && seen.insert(low).second) a->sounds.push_back(e.name);
+            }
+        std::sort(a->sounds.begin(), a->sounds.end(),
+                  [](const std::string& x, const std::string& y) { return db::lower_ascii(x) < db::lower_ascii(y); });
+        a->sounds_listed = true;
+    }
+    return int32_t(a->sounds.size());
+}
+
+const char* db_archives_sound_name(DBArchives* a, int32_t i, int32_t* len) {
+    if (!a || i < 0 || i >= db_archives_sound_count(a)) return nullptr;
+    const std::string& s = a->sounds[size_t(i)];
+    if (len) *len = int32_t(s.size());
+    return s.data();
+}
+
+DBSound* db_sound_load(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len) {
+    if (!a || !name || name_len <= 0) {
+        set_err(err, err_len, "no archive or name");
+        return nullptr;
+    }
+    auto* s = new (std::nothrow) DBSound;
+    if (!s) {
+        set_err(err, err_len, "out of memory");
+        return nullptr;
+    }
+    std::string msg;
+    if (!db::load_sound(a->set, std::string(name, size_t(name_len)), s->pcm, &msg)) {
+        set_err(err, err_len, msg);
+        delete s;
+        return nullptr;
+    }
+    set_err(err, err_len, "");
+    return s;
+}
+
+void db_sound_free(DBSound* s) { delete s; }
+int32_t db_sound_channels(const DBSound* s) { return s ? s->pcm.channels : 0; }
+int32_t db_sound_rate(const DBSound* s) { return s ? s->pcm.rate : 0; }
+int64_t db_sound_frames(const DBSound* s) {
+    return s && s->pcm.channels > 0 ? int64_t(s->pcm.samples.size() / size_t(s->pcm.channels)) : 0;
+}
+const int16_t* db_sound_samples(const DBSound* s) { return s ? s->pcm.samples.data() : nullptr; }
+int64_t db_sound_loop_start(const DBSound* s) { return s ? s->pcm.loop_start : -1; }
+int64_t db_sound_loop_end(const DBSound* s) { return s ? s->pcm.loop_end : -1; }
+
+int32_t db_voice_entry(DBArchives* a, const char* voice, int32_t voice_len, char* out, int32_t out_len) {
+    if (!out || out_len <= 0) return 0;
+    out[0] = 0;
+    if (!a || !voice || voice_len <= 0) return 0;
+    const std::string e = db::voice_entry(a->set, std::string(voice, size_t(voice_len)));
+    const size_t n = std::min(e.size(), size_t(out_len - 1));
+    memcpy(out, e.data(), n);
+    out[n] = 0;
+    return int32_t(n);
+}
+
+int32_t db_archives_character_count(DBArchives* a) {
+    if (!a) return 0;
+    if (!a->characters_listed) {
+        std::set<std::string> seen;
+        for (const db::Archive* ar : a->set.archives())
+            for (const std::string& n : db::list_characters(*ar))
+                if (seen.insert(db::lower_ascii(n)).second) a->characters.push_back(n);
+        std::sort(a->characters.begin(), a->characters.end(),
+                  [](const std::string& x, const std::string& y) { return db::lower_ascii(x) < db::lower_ascii(y); });
+        a->characters_listed = true;
+    }
+    return int32_t(a->characters.size());
+}
+
+const char* db_archives_character_name(DBArchives* a, int32_t i, int32_t* len) {
+    if (!a || i < 0 || i >= db_archives_character_count(a)) return nullptr;
+    const std::string& s = a->characters[size_t(i)];
+    if (len) *len = int32_t(s.size());
+    return s.data();
+}
+
+DBCharacter* db_character_open(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len) {
+    if (!a || !name || name_len <= 0) {
+        set_err(err, err_len, "no archive or name");
+        return nullptr;
+    }
+    auto* c = new (std::nothrow) DBCharacter;
+    if (!c) {
+        set_err(err, err_len, "out of memory");
+        return nullptr;
+    }
+    std::string msg;
+    if (!db::load_character(a->set, std::string(name, size_t(name_len)), c->c, &msg)) {
+        set_err(err, err_len, msg);
+        delete c;
+        return nullptr;
+    }
+    set_err(err, err_len, "");
+    return c;
+}
+
+void db_character_free(DBCharacter* c) { delete c; }
+int32_t db_character_anim_count(const DBCharacter* c) { return c ? int32_t(c->c.anims.size()) : 0; }
+
+const char* db_character_anim_name(const DBCharacter* c, int32_t i, int32_t* len) {
+    if (!c || i < 0 || size_t(i) >= c->c.anims.size()) return nullptr;
+    const std::string& s = c->c.anims[size_t(i)].name;
+    if (len) *len = int32_t(s.size());
+    return s.data();
+}
+
+double db_character_anim_seconds(const DBCharacter* c, int32_t i) {
+    if (!c || i < 0 || size_t(i) >= c->c.anims.size()) return 0;
+    return (c->c.anims[size_t(i)].ticks + 80) / c->c.ticks_per_second;  // the last key holds one frame
+}
+
+DBStageGeometry* db_character_pose(const DBCharacter* c, int32_t anim, double seconds) {
+    if (!c) return nullptr;
+    auto* g = new (std::nothrow) DBStageGeometry;
+    if (g) g->geo = db::pose_character(c->c, anim, seconds);
+    return g;
+}
+
+int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out) {
+    if (!g || !out) return 0;
+    const db::Camera c = db::character_camera(g->geo);
+    for (int k = 0; k < 3; k++) out->eye[k] = c.eye[k], out->target[k] = c.target[k];
+    out->fov_y = c.fov_y;
+    out->z_near = c.z_near;
+    out->z_far = c.z_far;
+    return 1;
+}
+
 int32_t db_stage_pass_count(void) { return db::kStagePassCount; }
 
 int32_t db_stage_pass(int32_t i, DBPass* out) {
@@ -463,6 +617,25 @@ int32_t db_talk_set_mask(DBTalk* t, uint32_t code, const uint8_t* coverage, int3
     m.top = top;
     m.coverage.assign(coverage, coverage + size_t(w) * size_t(h));
     t->masks[uint16_t(code)] = std::move(m);
+    return 1;
+}
+
+int32_t db_talk_background(DBArchives* a, const char* script, int32_t script_len, uint8_t* out) {
+    if (!a || !script || script_len <= 0 || !out) return 0;
+    auto load = [](void* ctx, const std::string& name, std::vector<uint8_t>& rgba, int& w, int& h) {
+        const db::ArchiveSet& set = static_cast<DBArchives*>(ctx)->set;
+        const db::Entry* e = set.find(name);
+        std::vector<uint8_t> d;
+        db::Image img;
+        std::string err;
+        if (!e || !set.read(*e, d, &err) || !db::decode_image(d, img, &err)) return false;
+        rgba = std::move(img.rgba);
+        w = int(img.width);
+        h = int(img.height);
+        return true;
+    };
+    const std::vector<uint8_t> bg = db::talk::background(std::string(script, size_t(script_len)), load, a);
+    memcpy(out, bg.data(), bg.size());
     return 1;
 }
 

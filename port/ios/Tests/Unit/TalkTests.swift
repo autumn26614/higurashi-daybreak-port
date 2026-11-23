@@ -1,5 +1,5 @@
 import XCTest
-@testable import DaybreakStageViewer
+@testable import Daybreak
 
 /// The talk text box (port/src/talk.h) with real CoreText glyphs, on test-authored scripts.
 final class TalkTests: XCTestCase {

@@ -48,6 +48,12 @@ enum ArchiveOrder {
         mode == .kai ? [.kai04, .base00] : [.base00]
     }
 
+    /// Music archives used when present, searched after the required ones: the base game
+    /// opens daybreak01 (BGM); Kai opens daybreak05 (its BGM) and never daybreak01.
+    static func optionalRoles(for mode: ArchiveMode) -> [ArchiveRole] {
+        mode == .kai ? [.kai05] : [.base01]
+    }
+
     enum OrderError: LocalizedError, Equatable {
         case missing([ArchiveRole], picked: [String])
         var errorDescription: String? {
@@ -60,8 +66,9 @@ enum ArchiveOrder {
         }
     }
 
-    /// Puts identified archives in the game's search order for `mode`. Extra archives
-    /// (BGM, movies, duplicates) are ignored; the first file of each role wins.
+    /// Puts identified archives in the game's search order for `mode`, then the mode's
+    /// music archive if present. Other archives (movies, duplicates) are ignored; the
+    /// first file of each role wins.
     static func order(_ infos: [ArchiveInfo], for mode: ArchiveMode) throws -> [ArchiveInfo] {
         let want = roles(for: mode)
         let ordered = want.compactMap { role in infos.first { $0.role == role } }
@@ -75,7 +82,7 @@ enum ArchiveOrder {
             }
             throw OrderError.missing(missing, picked: picked)
         }
-        return ordered
+        return ordered + optionalRoles(for: mode).compactMap { role in infos.first { $0.role == role } }
     }
 }
 
@@ -111,7 +118,7 @@ struct BookmarkStore {
 }
 
 /// Archives the user copied into the app's own Documents folder (Files app: On My iPhone >
-/// Daybreak Stage, or Finder file sharing). These need no security scope.
+/// Daybreak, or Finder file sharing). These need no security scope.
 enum DocumentsFolder {
     static var url: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]

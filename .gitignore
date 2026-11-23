@@ -19,7 +19,7 @@
 # Build output and generated projects
 /port/build/
 /port/ios/*.xcodeproj/
-/port/ios/DaybreakStageViewer/Info.plist
+/port/ios/Daybreak/Info.plist
 DerivedData/
 *.xcresult
 __pycache__/
