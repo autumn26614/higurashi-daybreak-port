@@ -1,0 +1,63 @@
+# Manually triggered: builds an UNSIGNED device .ipa for sideloading (e.g. Sideloadly
+# on Windows with a free Apple ID, which signs it for 7 days). No Apple credentials are
+# used here. The archive is checked to contain no game data before upload.
+# Start it from the Actions tab ("Run workflow") or: gh workflow run ios-device.yml
+name: iOS device build (unsigned)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Generate Xcode project
+        working-directory: port/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build for device (arm64, Release, unsigned)
+        working-directory: port/ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project DaybreakStageViewer.xcodeproj \
+            -scheme DaybreakStageViewer \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Package and check for game data
+        run: |
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakStageViewer.app"
+          file "$APP/DaybreakStageViewer" | tee /dev/stderr | grep -q arm64
+          # Only the two synthetic fixtures may be .dat files, and nothing may be large.
+          extra=$(find "$APP" -iname '*.dat' ! -name fixture.dat ! -name fixture-overlay.dat)
+          if [ -n "$extra" ]; then echo "unexpected .dat in app: $extra"; exit 1; fi
+          big=$(find "$APP" -type f -size +20M)
+          if [ -n "$big" ]; then echo "unexpectedly large file in app: $big"; exit 1; fi
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry DaybreakStageViewer-unsigned.ipa Payload)
+          ls -l "$RUNNER_TEMP/ipa/DaybreakStageViewer-unsigned.ipa"
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: DaybreakStageViewer-unsigned-ipa
+          path: ${{ runner.temp }}/ipa/DaybreakStageViewer-unsigned.ipa
+          retention-days: 7

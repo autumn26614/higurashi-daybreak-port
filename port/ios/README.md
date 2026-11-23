@@ -79,6 +79,12 @@ The same C call (`db_stage_report_open_set`, 04 then 00) was checked on Linux ag
 ## Texture preview
 Every resolved row under **All textures** opens a preview. The preview decodes that `.cnv` from the same archives, in the same search order, through `db_archives_open` / `db_image_load`. It shows the texture at its stored pixels without smoothing, with its size and bpp. Decoding was checked against all 5,418 images in daybreak00 and Kai daybreak04 on Linux (`port/README.md`, "Textures"). On iOS it is so far exercised only with the fixture texture: 2×2 red, green, blue and white.
 
+## Install on an iPhone without a Mac (Windows)
+1. Run the **iOS device build (unsigned)** workflow (`gh workflow run ios-device.yml`) and download the `DaybreakStageViewer-unsigned-ipa` artifact. The workflow fails if the app contains any `.dat` other than the two synthetic fixtures, or any file over 20 MB, so no game data can end up in it.
+2. Sign and install it from Windows with a sideloading tool such as Sideloadly and your Apple ID. A free Apple ID signs apps for 7 days, after which you re-sign. A paid developer account allows TestFlight instead; that needs signing secrets in CI and is not set up.
+3. On the iPhone (iOS 16+): Settings → Privacy & Security → Developer Mode → on, then trust the developer profile under Settings → General → VPN & Device Management.
+4. Copy `daybreak00.dat` (and `daybreak04.dat` for Kai) into Files → On My iPhone → Daybreak Stage, then open the app.
+
 ## CI: simulator test without game data
 `.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow or port/) runs on `macos-15-intel` (x86_64) and, experimentally, `macos-15` (arm64):
 1. Regenerates `Fixtures/fixture.dat` and `fixture-overlay.dat` with `port/tools/make_fixture.py` and requires both to match the committed copies byte for byte.

@@ -23,3 +23,11 @@
 DerivedData/
 *.xcresult
 __pycache__/
+
+# Device builds and signing material never go into the repo
+*.ipa
+*.xcarchive
+*.p12
+*.p8
+*.mobileprovision
+*.cer

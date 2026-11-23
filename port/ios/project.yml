@@ -2,7 +2,7 @@
 # creates DaybreakStageViewer.xcodeproj. Manual setup without XcodeGen: see README.md.
 name: DaybreakStageViewer
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: io.github.autumn26614
   deploymentTarget:
     iOS: "16.0"
 settings:
@@ -25,6 +25,9 @@ targets:
       path: DaybreakStageViewer/Info.plist
       properties:
         CFBundleDisplayName: Daybreak Stage
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Archives copied into the app's folder (Files: On My iPhone > Daybreak Stage, or
@@ -33,7 +36,10 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.DaybreakStageViewer
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.DaybreakStageViewer
+        MARKETING_VERSION: "0.2"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"   # iPhone
         SWIFT_OBJC_BRIDGING_HEADER: DaybreakStageViewer/Bridging-Header.h
         HEADER_SEARCH_PATHS: $(SRCROOT)/../src
         CLANG_CXX_LANGUAGE_STANDARD: c++17
@@ -50,7 +56,7 @@ targets:
       - target: DaybreakStageViewer
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.DaybreakStageViewerTests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.DaybreakStageViewerTests
         GENERATE_INFOPLIST_FILE: YES
         # @testable import of an app that uses a bridging header needs the same header here.
         SWIFT_OBJC_BRIDGING_HEADER: DaybreakStageViewer/Bridging-Header.h
@@ -65,7 +71,7 @@ targets:
       - target: DaybreakStageViewer
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.DaybreakStageViewerUITests
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.DaybreakStageViewerUITests
         GENERATE_INFOPLIST_FILE: YES
 
 schemes:
