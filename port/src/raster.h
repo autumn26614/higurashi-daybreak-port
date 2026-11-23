@@ -18,6 +18,9 @@
 
 namespace db {
 
+// Render mode 3 per-vertex colours (recipe.h): c becomes the multiplier, add the addend.
+void mode3_colors(float c[4], float add[3]);
+
 // Writes width*height*4 RGBA bytes (alpha 255) into `rgba`. Returns the number of
 // pixels written by any pass (0 means nothing was visible).
 long render_reference(const Source& a, const StageGeometry& g, const Camera& cam, int width, int height,

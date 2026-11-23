@@ -204,6 +204,7 @@ StageGeometry load_stage_geometry(const Source& a, int stage, int variant) {
     StageGeometry g;
     g.stage = stage;
     g.variant = variant ? 1 : 0;
+    g.mode3 = g.variant == 0;  // RenderMode(Stage+0x2C ? 3 : 0) in Stage::Draw
     char dirbuf[64];
     snprintf(dirbuf, sizeof dirbuf, "data/stage%02d", stage);
     g.dir = dirbuf;

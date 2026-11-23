@@ -37,20 +37,22 @@ struct StagePass: Equatable {
     let fog: Bool
     let alphaTest: Bool
     let pointSampling: Bool
+    var mode3 = false
 
     /// Game order, from the C API.
     static let recipe: [StagePass] = (0..<db_stage_pass_count()).compactMap { i in
         var p = DBPass()
         guard db_stage_pass(i, &p) == 1 else { return nil }
         return StagePass(slot: Int(p.slot), blend: Blend(rawValue: p.blend) ?? .alpha, zWrite: p.z_write != 0,
-                         fog: p.fog != 0, alphaTest: p.alpha_test != 0, pointSampling: p.point_sampling != 0)
+                         fog: p.fog != 0, alphaTest: p.alpha_test != 0, pointSampling: p.point_sampling != 0,
+                         mode3: p.mode3 != 0)
     }
 
     /// A batch whose material power is non-zero is additive, no Z-write, no fog (0x5D1750).
     func forBatch(power: Float) -> StagePass {
         guard power != 0 else { return self }
         return StagePass(slot: slot, blend: .additive, zWrite: false, fog: false, alphaTest: alphaTest,
-                         pointSampling: pointSampling)
+                         pointSampling: pointSampling, mode3: mode3)
     }
 }
 
@@ -107,6 +109,7 @@ final class StageScene {
     let fogColor: SIMD3<Float>             // 0...1
     let defaultCamera: StageCamera
     let parseErrors: Int
+    let mode3: Bool  // drawn in render mode 3 (plain set)
 
     private let archives: OpaquePointer
     private let geometry: OpaquePointer
@@ -142,6 +145,7 @@ final class StageScene {
         self.textures = textures
         triangleCount = Int(db_geometry_triangle_count(geometry))
         parseErrors = Int(db_geometry_error_count(geometry))
+        mode3 = db_geometry_mode3(geometry) == 1
 
         var env = DBStageEnv()
         db_geometry_env(geometry, &env)

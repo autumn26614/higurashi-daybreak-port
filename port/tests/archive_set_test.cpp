@@ -16,6 +16,7 @@
 #include "../src/character.h"
 #include "../src/cnv.h"
 #include "../src/geometry.h"
+#include "../src/raster.h"
 #include "../src/talk.h"
 #include "../src/identify.h"
 #include "../src/stage.h"
@@ -372,6 +373,21 @@ void geometry_tests(const std::string& dir) {
     check(db_stage_pass(6, &ps) && ps.slot == 0 && !ps.fog, "sky has no fog");
     check(db_stage_pass(4, &ps) && ps.alpha_test && ps.point_sampling, "slot 6 alpha-tested, point-sampled");
     check(db_stage_pass(99, &ps) == 0, "pass bounds");
+    std::string m3;
+    for (int i = 0; i < db_stage_pass_count(); i++)
+        if (db_stage_pass(i, &ps) && ps.mode3) m3 += char('0' + ps.slot);
+    check(m3 == "15362", "render mode 3 on slots 1 5 3 6 2, not on 4, 0, 7");
+    {
+        float dark[4] = {0.25f, 0.1f, 0.4f, 0.5f}, add[3] = {9, 9, 9};
+        mode3_colors(dark, add);
+        check(dark[0] == 0.5f && dark[2] == 0.8f && dark[3] == 0.5f && add[0] == 0 && add[2] == 0,
+              "mode 3: dark vertex colours double");
+        float bright[4] = {0.75f, 0.5f, 0.25f, 0.5f};
+        mode3_colors(bright, add);
+        check(bright[0] == 1 && bright[3] == 1 && add[0] == 0.25f && add[1] == 0 && add[2] == -0.25f,
+              "mode 3: bright vertex colours add above 0.5");
+    }
+    check(g.mode3 && !load_stage_geometry(a, 7, 1).mode3, "plain set uses mode 3, b set does not");
 }
 
 void identify_tests(const std::string& dir) {

@@ -525,11 +525,12 @@ int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out) {
 }
 
 int32_t db_stage_pass_count(void) { return db::kStagePassCount; }
+int32_t db_geometry_mode3(const DBStageGeometry* g) { return g && g->geo.mode3 ? 1 : 0; }
 
 int32_t db_stage_pass(int32_t i, DBPass* out) {
     if (!out || i < 0 || i >= db::kStagePassCount) return 0;
     const db::Pass& p = db::kStagePasses[i];
-    *out = {p.slot, int32_t(p.blend), p.z_write, p.fog, p.alpha_test, p.point_sampling};
+    *out = {p.slot, int32_t(p.blend), p.z_write, p.fog, p.alpha_test, p.point_sampling, p.mode3};
     return 1;
 }
 

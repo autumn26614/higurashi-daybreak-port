@@ -50,6 +50,7 @@ struct StageEnv {
 struct StageGeometry {
     int stage = 0;
     int variant = 0;  // 0 = "%02d.x" (game default), 1 = "%02db.x"
+    bool mode3 = false;  // passes marked mode3 use render mode 3 colours (plain set only)
     std::string dir;
     StageEnv env;
     std::vector<GBatch> batches;

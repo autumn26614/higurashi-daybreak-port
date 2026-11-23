@@ -15,6 +15,8 @@ struct StageUniforms {
     float fogEnd;
     uint fog;
     uint alphaTest;
+    uint mode3;  // render mode 3 vertex colours (port/src/recipe.h), stage passes only
+    uint pad0, pad1, pad2;
 };
 
 struct StageVertexIn {
@@ -26,7 +28,8 @@ struct StageVertexIn {
 struct StageVertexOut {
     float4 position [[position]];
     float2 uv;
-    float4 color;
+    float4 color;  // multiplier
+    float3 add;    // render mode 3 addend
     float viewZ;
 };
 
@@ -37,12 +40,24 @@ vertex StageVertexOut stage_vertex(StageVertexIn in [[stage_in]], constant Stage
     out.viewZ = (u.view * p).z;
     out.uv = in.uv;
     out.color = in.color;
+    out.add = float3(0.0);
+    if (u.mode3 != 0) {
+        // Game vertex shader 0x6317A4: dark colours double, bright ones add above 0.5.
+        const float m = max(in.color.r, max(in.color.g, in.color.b));
+        if (m < 0.5) {
+            out.color = float4(in.color.rgb * 2.0, in.color.a);
+        } else {
+            out.color = float4(1.0);
+            out.add = in.color.rgb - 0.5;
+        }
+    }
     return out;
 }
 
 fragment float4 stage_fragment(StageVertexOut in [[stage_in]], texture2d<float> tex [[texture(0)]],
                                sampler smp [[sampler(0)]], constant StageUniforms& u [[buffer(1)]]) {
     float4 c = tex.sample(smp, in.uv) * in.color;
+    c.rgb = min(c.rgb + in.add, 1.0);
     if (u.alphaTest != 0 && c.a < 1.0 / 255.0) discard_fragment();
     if (u.fog != 0 && u.fogEnd > u.fogStart) {
         const float f = clamp((u.fogEnd - in.viewZ) / (u.fogEnd - u.fogStart), 0.0, 1.0);

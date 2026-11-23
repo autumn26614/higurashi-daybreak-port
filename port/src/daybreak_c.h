@@ -153,7 +153,10 @@ int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out);
  * power != 0 is drawn additively with no Z-write and no fog, whatever its pass says. */
 typedef struct {
     int32_t slot, blend, z_write, fog, alpha_test, point_sampling;
+    int32_t mode3; /* vertex colours as render mode 3 (src/recipe.h) when the geometry uses it */
 } DBPass;
+/* 1 if the stage is drawn in render mode 3 (the plain set; 0 for the "b" set, characters). */
+int32_t db_geometry_mode3(const DBStageGeometry* g);
 int32_t db_stage_pass_count(void);
 int32_t db_stage_pass(int32_t i, DBPass* out); /* 1 = ok */
 

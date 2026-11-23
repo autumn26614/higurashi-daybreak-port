@@ -2,7 +2,7 @@ import Metal
 import MetalKit
 import simd
 
-/// Uniforms shared with Shaders.metal (StageUniforms): 160 bytes.
+/// Uniforms shared with Shaders.metal (StageUniforms): 176 bytes.
 struct StageUniforms {
     var viewProj: simd_float4x4
     var view: simd_float4x4
@@ -11,6 +11,8 @@ struct StageUniforms {
     var fogEnd: Float
     var fog: UInt32
     var alphaTest: UInt32
+    var mode3: UInt32 = 0
+    var pad0: UInt32 = 0, pad1: UInt32 = 0, pad2: UInt32 = 0
 }
 
 enum RendererError: LocalizedError {
@@ -170,6 +172,9 @@ final class StageRenderer: NSObject, MTKViewDelegate {
         var color = SIMD3<Float>(0, 0, 0)
     }
     var fog = Fog()
+    /// Draw the stage passes marked mode3 with render mode 3 colours (a stage's plain set;
+    /// off for the "b" set and for characters).
+    var stageMode3 = false
     private var textureCache: [[UInt8]: MTLTexture] = [:]
 
     /// Uploads the scene's batches and textures. Textures get the game's authored mip
@@ -178,6 +183,7 @@ final class StageRenderer: NSObject, MTKViewDelegate {
         setTextures(scene.textures)
         setBatches(scene.batches)
         fog = Fog(start: scene.fogStart, end: scene.fogEnd, color: scene.fogColor)
+        stageMode3 = scene.mode3
         self.scene = scene
         if camera == nil { camera = scene.defaultCamera }
     }
@@ -251,6 +257,7 @@ final class StageRenderer: NSObject, MTKViewDelegate {
                 encoder.setDepthStencilState(p.zWrite ? depthWrite : depthNoWrite)
                 u.fog = p.fog ? 1 : 0
                 u.alphaTest = p.alphaTest ? 1 : 0
+                u.mode3 = stageMode3 && p.mode3 ? 1 : 0
                 encoder.setVertexBytes(&u, length: MemoryLayout<StageUniforms>.stride, index: 1)
                 encoder.setFragmentBytes(&u, length: MemoryLayout<StageUniforms>.stride, index: 1)
                 encoder.setVertexBuffer(b.vertices, offset: 0, index: 0)

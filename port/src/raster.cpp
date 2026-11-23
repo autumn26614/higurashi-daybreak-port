@@ -25,6 +25,7 @@ struct Vert {
     V4 clip;
     float u, v;
     float c[4];
+    float add[3];  // render mode 3: added after the texture multiply
     float vz;  // view-space depth, for fog
 };
 
@@ -61,6 +62,7 @@ Vert lerp(const Vert& a, const Vert& b, float t) {
     r.u = a.u + (b.u - a.u) * t;
     r.v = a.v + (b.v - a.v) * t;
     for (int c = 0; c < 4; c++) r.c[c] = a.c[c] + (b.c[c] - a.c[c]) * t;
+    for (int c = 0; c < 3; c++) r.add[c] = a.add[c] + (b.add[c] - a.add[c]) * t;
     r.vz = a.vz + (b.vz - a.vz) * t;
     return r;
 }
@@ -129,6 +131,8 @@ struct Raster {
                 float t[4];
                 sample(tex, attr(&Vert::u), attr(&Vert::v), pass.point_sampling, t);
                 for (int ch = 0; ch < 4; ch++) col[ch] *= t[ch];
+                for (int ch = 0; ch < 3; ch++)
+                    col[ch] = std::min(1.0f, col[ch] + (pw[0] * a.add[ch] + pw[1] * b.add[ch] + pw[2] * c.add[ch]) / sw);
                 if (pass.alpha_test && col[3] < 1.0f / 255.0f) continue;
                 if (pass.fog && env.fog_end > env.fog_start) {
                     const float vz = attr(&Vert::vz);
@@ -150,6 +154,16 @@ struct Raster {
 };
 
 }  // namespace
+
+void mode3_colors(float c[4], float add[3]) {
+    const float m = std::max(c[0], std::max(c[1], c[2]));
+    if (m < 0.5f) {
+        for (int k = 0; k < 3; k++) c[k] *= 2, add[k] = 0;
+    } else {
+        for (int k = 0; k < 3; k++) add[k] = c[k] - 0.5f, c[k] = 1;
+        c[3] = 1;
+    }
+}
 
 long render_reference(const Source& a, const StageGeometry& g, const Camera& cam, int W, int H,
                       std::vector<uint8_t>& out) {
@@ -199,6 +213,8 @@ long render_reference(const Source& a, const StageGeometry& g, const Camera& cam
                 vs[i].u = b.uvs[i * 2];
                 vs[i].v = b.uvs[i * 2 + 1];
                 for (int c = 0; c < 4; c++) vs[i].c[c] = b.colors[i * 4 + size_t(c)] / 255.0f;
+                for (int c = 0; c < 3; c++) vs[i].add[c] = 0;
+                if (g.mode3 && pass.mode3) mode3_colors(vs[i].c, vs[i].add);
             }
             for (size_t i = 0; i + 2 < b.indices.size(); i += 3)
                 r.triangle(vs[b.indices[i]], vs[b.indices[i + 1]], vs[b.indices[i + 2]]);
