@@ -37,8 +37,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.daybreak
-        MARKETING_VERSION: "0.4"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.5"
+        CURRENT_PROJECT_VERSION: "4"
         TARGETED_DEVICE_FAMILY: "1"   # iPhone
         SWIFT_OBJC_BRIDGING_HEADER: Daybreak/Bridging-Header.h
         HEADER_SEARCH_PATHS: $(SRCROOT)/../src

@@ -30,7 +30,7 @@ Not implemented: gameplay (battles, input, characters' moves and hit boxes), men
 
 ## Build on a Mac
 Requirements: Xcode 15 or newer, an iOS 16+ device or simulator. Get `daybreak00.dat` (1.5 GB) onto the device in one of two ways:
-- Copy it into the app's own folder: Files app → On My iPhone → Daybreak, or Finder file sharing from a Mac. The app finds archives there at launch, whatever their names.
+- Copy it into the app's own folder: Files app → On My iPhone → Daybreak (created on first launch, with a note), or Finder file sharing from a Mac. The app scans that folder (and folders inside it) automatically: at launch, when it comes back to the foreground, whenever the folder changes, and every few seconds while nothing is loaded, so files are picked up as soon as a copy finishes, whatever their names.
 - Or keep it anywhere the Files app reaches (iCloud Drive, another app's folder) and pick it with the button. The app remembers the pick (a bookmark) and reopens it at the next launch.
 
 ### Option A: XcodeGen (quickest)

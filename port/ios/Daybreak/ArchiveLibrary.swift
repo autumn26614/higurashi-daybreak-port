@@ -119,19 +119,86 @@ struct BookmarkStore {
 
 /// Archives the user copied into the app's own Documents folder (Files app: On My iPhone >
 /// Daybreak, or Finder file sharing). These need no security scope.
+/// The app's own folder: Files > On My iPhone > Daybreak (UIFileSharingEnabled and
+/// LSSupportsOpeningDocumentsInPlace). Game archives dropped there are found automatically.
 enum DocumentsFolder {
     static var url: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
-    /// Every .dat file directly inside `folder`, identified. Unreadable files are skipped.
-    static func scan(_ folder: URL = url) -> [ArchiveInfo] {
-        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        return files
-            .filter { $0.pathExtension.lowercased() == "dat" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .compactMap { try? ArchiveInfo.identify($0) }
+    static let readmeName = "Put Daybreak .dat files here.txt"
+
+    /// Makes sure the folder exists and is not empty, so the Files app always lists it.
+    static func prepare(_ folder: URL = url) {
+        let fm = FileManager.default
+        try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let readme = folder.appendingPathComponent(readmeName)
+        if !fm.fileExists(atPath: readme.path) {
+            let text = """
+            Copy the game's archives into this folder (or a folder inside it):
+              daybreak00.dat  base game (required)
+              daybreak01.dat  base game music (optional)
+              daybreak04.dat  Kai expansion data (Kai mode)
+              daybreak05.dat  Kai music (optional)
+            The app finds them by their contents, so the names do not matter, and picks them up
+            as soon as the copy has finished.
+            """
+            try? Data(text.utf8).write(to: readme)
+        }
     }
+
+    /// Every .dat file in `folder` and the folders directly inside it (not hidden ones).
+    static func datFiles(_ folder: URL = url) -> [URL] {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.isDirectoryKey]
+        var out: [URL] = []
+        let top = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys,
+                                               options: [.skipsHiddenFiles])) ?? []
+        for item in top {
+            if (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                let inner = (try? fm.contentsOfDirectory(at: item, includingPropertiesForKeys: nil,
+                                                         options: [.skipsHiddenFiles])) ?? []
+                out += inner.filter { $0.pathExtension.lowercased() == "dat" }
+            } else if item.pathExtension.lowercased() == "dat" {
+                out.append(item)
+            }
+        }
+        return out.sorted { $0.path < $1.path }
+    }
+
+    /// Names, sizes and dates of the .dat files: changes when files are added, removed or
+    /// still being copied.
+    static func signature(_ folder: URL = url) -> String {
+        datFiles(folder).map { u -> String in
+            let v = try? u.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            return "\(u.path)|\(v?.fileSize ?? -1)|\(v?.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        }.joined(separator: "\n")
+    }
+
+    /// Every .dat file found, identified. Unreadable files (e.g. half-copied) are skipped.
+    static func scan(_ folder: URL = url) -> [ArchiveInfo] {
+        datFiles(folder).compactMap { try? ArchiveInfo.identify($0) }
+    }
+}
+
+/// Calls `onChange` (on the main queue) whenever the Documents folder's listing changes.
+final class DocumentsWatcher {
+    private var source: DispatchSourceFileSystemObject?
+    private var fd: Int32 = -1
+
+    init(folder: URL = DocumentsFolder.url, onChange: @escaping () -> Void) {
+        fd = open(folder.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let s = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete],
+                                                          queue: .main)
+        s.setEventHandler(handler: onChange)
+        let descriptor = fd
+        s.setCancelHandler { close(descriptor) }
+        s.resume()
+        source = s
+    }
+
+    deinit { source?.cancel() }
 }
 
 /// Runs `body` with security-scoped access to every URL (a no-op for files inside the

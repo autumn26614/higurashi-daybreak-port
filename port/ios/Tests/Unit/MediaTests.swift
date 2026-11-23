@@ -41,6 +41,24 @@ final class MediaTests: XCTestCase {
         XCTAssertThrowsError(try ArchiveOrder.order([info(.base01)], for: .base), "music alone is not enough")
     }
 
+    /// Drop-in folder: created with a note, scanned one level deep, changes detected.
+    func testDropFolder() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        DocumentsFolder.prepare(dir)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent(DocumentsFolder.readmeName).path))
+        XCTAssertTrue(DocumentsFolder.datFiles(dir).isEmpty)
+        let before = DocumentsFolder.signature(dir)
+        let sub = dir.appendingPathComponent("data")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fixtureURL(), to: sub.appendingPathComponent("game.DAT"))
+        XCTAssertEqual(DocumentsFolder.datFiles(dir).map(\.lastPathComponent), ["game.DAT"], "found inside a subfolder")
+        XCTAssertNotEqual(DocumentsFolder.signature(dir), before)
+        XCTAssertEqual(DocumentsFolder.scan(dir).map(\.entries), [3])
+        DocumentsFolder.prepare(dir)  // idempotent
+        XCTAssertEqual(DocumentsFolder.datFiles(dir).count, 1)
+    }
+
     func testBattleSetUp() throws {
         XCTAssertTrue(BattleView.isCharacter(Array("data/rena/00.X".utf8)))
         XCTAssertFalse(BattleView.isCharacter(Array("data/item/01.x".utf8)))

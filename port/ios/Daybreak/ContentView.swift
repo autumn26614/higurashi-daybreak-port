@@ -31,6 +31,10 @@ struct ContentView: View {
     @State private var loading = false
     @State private var infos: [ArchiveInfo] = []  // identified archives, search order
     @State private var usingFixture = false
+    @State private var watcher: DocumentsWatcher?
+    @State private var docsSignature = ""
+    @Environment(\.scenePhase) private var scenePhase
+    private let poll = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     private let bookmarks = BookmarkStore()
 
     var body: some View {
@@ -52,6 +56,11 @@ struct ContentView: View {
                     }
                     if let errorText {
                         Text(errorText).foregroundStyle(.red).accessibilityIdentifier("error")
+                    }
+                    if report == nil && !loading && !usingFixture {
+                        Text("Or copy the .dat files into Files › On My iPhone › Daybreak: they are picked up automatically.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("dropHint")
                     }
                 }
                 if !infos.isEmpty {
@@ -78,9 +87,20 @@ struct ContentView: View {
             .onChange(of: mode) { _ in
                 if !usingFixture { restore() }
             }
+            .onChange(of: scenePhase) { phase in
+                if phase == .active && !usingFixture { rescanIfChanged() }
+            }
+            .onReceive(poll) { _ in
+                // While nothing is loaded, keep looking: a large copy into the folder finishes
+                // after the folder's change event.
+                if report == nil && !loading && !usingFixture { rescanIfChanged() }
+            }
             .task {
                 let args = ProcessInfo.processInfo.arguments
                 guard args.contains(useBundledFixtureArgument) else {
+                    DocumentsFolder.prepare()
+                    docsSignature = DocumentsFolder.signature()
+                    watcher = DocumentsWatcher { rescanIfChanged() }
                     restore()
                     return
                 }
@@ -221,6 +241,15 @@ struct ContentView: View {
 
     /// At launch and on a mode switch: reopen the archives picked last time, else use
     /// archives copied into the app's Documents folder. Silent if neither is there.
+    /// Reloads when the .dat files in the app's folder changed (added, removed, copy finished).
+    private func rescanIfChanged() {
+        guard !loading else { return }
+        let sig = DocumentsFolder.signature()
+        guard sig != docsSignature else { return }
+        docsSignature = sig
+        restore()
+    }
+
     private func restore() {
         let mode = mode
         report = nil
@@ -229,17 +258,18 @@ struct ContentView: View {
         errorText = nil
         loading = true
         Task.detached(priority: .userInitiated) {
-            var fromBookmarks: [ArchiveInfo]? = nil
-            if let urls = BookmarkStore().load(for: mode) {
-                fromBookmarks = try? withScopedAccess(urls) {
+            // Files dropped into the app's own folder come first; then the last pick.
+            var found = try? ArchiveOrder.order(DocumentsFolder.scan(), for: mode)
+            if found == nil, let urls = BookmarkStore().load(for: mode) {
+                found = try? withScopedAccess(urls) {
                     try ArchiveOrder.order(urls.map(ArchiveInfo.identify), for: mode)
                 }
-                if fromBookmarks == nil { BookmarkStore().clear(for: mode) }
+                if found == nil { BookmarkStore().clear(for: mode) }
             }
-            let found = fromBookmarks ?? (try? ArchiveOrder.order(DocumentsFolder.scan(), for: mode))
+            let result = found
             await MainActor.run {
                 loading = false
-                if let found { open(found, mode: mode) }
+                if let result { open(result, mode: mode) }
             }
         }
     }
