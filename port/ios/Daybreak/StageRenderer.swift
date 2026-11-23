@@ -55,6 +55,7 @@ final class StageRenderer: NSObject, MTKViewDelegate {
     /// with the CPU reference renderer, which has no outline.
     var outlines = true
     private var gpu: [GPUBatch] = []
+    private var dynamicGPU: [GPUBatch] = []  // e.g. animated characters on a stage, replaced per frame
     private(set) var scene: StageScene?
 
     var camera: StageCamera?
@@ -196,10 +197,26 @@ final class StageRenderer: NSObject, MTKViewDelegate {
         }
     }
 
+    /// Adds textures to the set already uploaded (characters joining a stage).
+    func addTextures(_ textures: [[UInt8]: StageTexture]) {
+        for (name, t) in textures where textureCache[name] == nil {
+            if let tex = makeTexture(t) { textureCache[name] = tex }
+        }
+    }
+
     /// Replaces the geometry, keeping the textures: cheap enough to call every frame for
     /// an animated character (a few thousand vertices).
     func setBatches(_ batches: [StageBatch]) {
-        gpu = batches.compactMap { b in
+        gpu = upload(batches)
+    }
+
+    /// Replaces only the per-frame geometry drawn together with the batches above.
+    func setDynamicBatches(_ batches: [StageBatch]) {
+        dynamicGPU = upload(batches)
+    }
+
+    private func upload(_ batches: [StageBatch]) -> [GPUBatch] {
+        batches.compactMap { b in
             guard !b.indices.isEmpty,
                   let vb = device.makeBuffer(bytes: b.vertices, length: b.vertices.count * MemoryLayout<StageVertex>.stride),
                   let ib = device.makeBuffer(bytes: b.indices, length: b.indices.count * 4)
@@ -243,14 +260,15 @@ final class StageRenderer: NSObject, MTKViewDelegate {
 
     /// Encodes the stage into `encoder` (its pass must have colour + depth attachments).
     func encode(_ encoder: MTLRenderCommandEncoder, aspect: Float) {
-        guard let camera, !gpu.isEmpty else { return }
+        let all = gpu + dynamicGPU
+        guard let camera, !all.isEmpty else { return }
         let m = camera.matrices(aspect: aspect)
         var u = StageUniforms(viewProj: m.proj * m.view, view: m.view, fogColor: SIMD4(fog.color, 1),
                               fogStart: fog.start, fogEnd: fog.end, fog: 0, alphaTest: 0)
         encoder.setCullMode(.back)
         encoder.setFrontFacing(.clockwise)  // D3D CULLMODE=CCW culls counter-clockwise faces
         for pass in StagePass.recipe {
-            for b in gpu where b.slot == pass.slot {
+            for b in all where b.slot == pass.slot {
                 let p = pass.forBatch(power: b.power)
                 guard let pipeline = pipelines[p.blend] else { continue }
                 encoder.setRenderPipelineState(pipeline)
@@ -278,7 +296,7 @@ final class StageRenderer: NSObject, MTKViewDelegate {
             encoder.setDepthStencilState(depthWrite)
             encoder.setCullMode(.front)
             encoder.setVertexBytes(&u, length: MemoryLayout<StageUniforms>.stride, index: 1)
-            for b in gpu {
+            for b in all {
                 guard let nb = b.normals else { continue }
                 encoder.setVertexBuffer(b.vertices, offset: 0, index: 0)
                 encoder.setVertexBuffer(nb, offset: 0, index: 2)

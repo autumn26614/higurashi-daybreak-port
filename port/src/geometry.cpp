@@ -236,4 +236,29 @@ StageGeometry load_stage_geometry(const Source& a, int stage, int variant) {
     return g;
 }
 
+void place_character(StageGeometry& stage, const StageGeometry& character, const float pos[3], float yaw) {
+    const float c = std::cos(yaw), s = std::sin(yaw);
+    for (GBatch b : character.batches) {
+        b.slot = kCharacterSlot;
+        for (size_t i = 0; i + 2 < b.positions.size(); i += 3) {
+            const float x = b.positions[i], z = b.positions[i + 2];
+            b.positions[i] = x * c + z * s + pos[0];
+            b.positions[i + 1] += pos[1];
+            b.positions[i + 2] = -x * s + z * c + pos[2];
+        }
+        for (size_t i = 0; i + 2 < b.normals.size(); i += 3) {
+            const float x = b.normals[i], z = b.normals[i + 2];
+            b.normals[i] = x * c + z * s;
+            b.normals[i + 2] = -x * s + z * c;
+        }
+        stage.batches.push_back(std::move(b));
+    }
+}
+
+float facing_yaw(const float from[3], const float to[3]) {
+    // Rotating (0, 0, -1) by yaw gives (-sin, 0, -cos); match it to the direction.
+    const float dx = to[0] - from[0], dz = to[2] - from[2];
+    return std::atan2(-dx, -dz);
+}
+
 }  // namespace db

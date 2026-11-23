@@ -67,4 +67,14 @@ void append_x_batches(const Source& a, const XFile& x, const std::string& dir, i
 
 StageGeometry load_stage_geometry(const Source& a, int stage, int variant);
 
+// Slot for characters placed on a stage (drawn after the stage's own slots, recipe.h).
+constexpr int kCharacterSlot = 8;
+
+// Appends a posed character's batches to a stage, turned by `yaw` radians about +y
+// (a model faces -z) and moved to `pos`; they go into kCharacterSlot. Normals turn too.
+void place_character(StageGeometry& stage, const StageGeometry& character, const float pos[3], float yaw);
+
+// Yaw that turns a model (facing -z) to look from `from` towards `to` (in x/z).
+float facing_yaw(const float from[3], const float to[3]);
+
 }  // namespace db

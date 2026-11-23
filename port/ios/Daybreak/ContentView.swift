@@ -125,6 +125,12 @@ struct ContentView: View {
             }
             .accessibilityIdentifier("characters")
             NavigationLink {
+                BattleView(urls: archiveURLs)
+            } label: {
+                Label("Battle preview", systemImage: "person.2")
+            }
+            .accessibilityIdentifier("battle")
+            NavigationLink {
                 SoundTestView(urls: archiveURLs)
             } label: {
                 Label("Sound test", systemImage: "music.note")

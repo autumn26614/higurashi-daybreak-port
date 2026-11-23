@@ -82,6 +82,15 @@ final class CharacterModel {
         return (StageScene.batches(of: g), camera)
     }
 
+    /// The pose standing on a stage at `position`, turned to face `facing` (character slot).
+    func pose(anim: Int, seconds: Double, at position: SIMD3<Float>, facing: SIMD3<Float>) -> [StageBatch] {
+        var p = [position.x, position.y, position.z], f = [facing.x, facing.y, facing.z]
+        let yaw = db_facing_yaw(&p, &f)
+        guard let g = db_character_pose_at(character, Int32(anim), seconds, &p, yaw) else { return [] }
+        defer { db_geometry_free(g) }
+        return StageScene.batches(of: g)
+    }
+
     /// CPU reference frame of a pose (for devices without Metal).
     func renderReference(anim: Int, seconds: Double, camera: StageCamera, width: Int, height: Int) -> [UInt8] {
         guard let g = db_character_pose(character, Int32(anim), seconds) else { return [] }

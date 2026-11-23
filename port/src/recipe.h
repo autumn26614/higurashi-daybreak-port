@@ -49,6 +49,9 @@ inline const Pass kStagePasses[] = {
     {2, Blend::Alpha, true, true, true, true, true},
     {0, Blend::Alpha, true, false, false, false, false},  // sky dome, no fog
     {7, Blend::Alpha, false, true, false, false, false},
+    // Characters placed on the stage (geometry.h kCharacterSlot): their own effect, colours
+    // already shaded (character.h); drawn after the stage (inferred order: Battle_Draw).
+    {8, Blend::Alpha, true, true, false, false, false},
 };
 inline constexpr int kStagePassCount = int(sizeof kStagePasses / sizeof kStagePasses[0]);
 

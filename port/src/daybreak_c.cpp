@@ -514,6 +514,22 @@ DBStageGeometry* db_character_pose(const DBCharacter* c, int32_t anim, double se
     return g;
 }
 
+DBStageGeometry* db_character_pose_at(const DBCharacter* c, int32_t anim, double seconds, const float pos[3],
+                                      float yaw) {
+    if (!c || !pos) return nullptr;
+    auto* g = new (std::nothrow) DBStageGeometry;
+    if (!g) return nullptr;
+    db::place_character(g->geo, db::pose_character(c->c, anim, seconds), pos, yaw);
+    for (const auto& b : g->geo.batches)
+        for (size_t i = 0; i + 2 < b.positions.size(); i += 3) {
+            const double p[3] = {b.positions[i], b.positions[i + 1], b.positions[i + 2]};
+            g->geo.bounds.add(p);
+        }
+    return g;
+}
+
+float db_facing_yaw(const float from[3], const float to[3]) { return from && to ? db::facing_yaw(from, to) : 0.f; }
+
 int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out) {
     if (!g || !out) return 0;
     const db::Camera c = db::character_camera(g->geo);

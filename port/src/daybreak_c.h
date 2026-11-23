@@ -147,6 +147,12 @@ const char* db_character_anim_name(const DBCharacter* c, int32_t i, int32_t* len
 double db_character_anim_seconds(const DBCharacter* c, int32_t i);
 DBStageGeometry* db_character_pose(const DBCharacter* c, int32_t anim, double seconds); /* anim -1: bind pose */
 int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out);
+/* The same pose standing on a stage: turned by yaw radians about +y and moved to pos,
+ * batches in the character slot (8), drawn after the stage's slots. */
+DBStageGeometry* db_character_pose_at(const DBCharacter* c, int32_t anim, double seconds, const float pos[3],
+                                      float yaw);
+/* Yaw that turns a model (which faces -z) from `from` towards `to`. */
+float db_facing_yaw(const float from[3], const float to[3]);
 
 /* Draw passes in game order (src/recipe.h). blend: 0 = alpha (SRCALPHA, INVSRCALPHA),
  * 1 = multiply (DESTCOLOR, ZERO), 2 = additive (SRCALPHA, ONE). A batch whose material

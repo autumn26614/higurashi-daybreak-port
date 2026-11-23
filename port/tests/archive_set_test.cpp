@@ -233,6 +233,19 @@ void character_audio_tests(const std::string& dir) {
     check(c.meshes.size() == 1 && c.meshes[0].skin.size() == 1 && c.anims.size() == 1 && c.anims[0].ticks == 80,
           "one skinned mesh, one animation of 80 ticks");
     check(list_characters(a) == std::vector<std::string>{"data/hero/00.X"}, "character listed");
+    {
+        const float o[3] = {0, 0, 0}, ahead[3] = {0, 0, -10}, right[3] = {10, 0, 0};
+        check(std::abs(facing_yaw(o, ahead)) < 1e-6f && std::abs(facing_yaw(o, right) + 1.5707964f) < 1e-5f,
+              "facing yaw: a model faces -z");
+        StageGeometry st;
+        const float at[3] = {100, 5, 0};
+        place_character(st, pose_character(c, -1, 0), at, facing_yaw(o, right));
+        // Vertex (1, 0, 0) turned -90 degrees about y: (x c + z s, , -x s + z c) = (0, 0, 1).
+        check(st.batches.size() == 1 && st.batches[0].slot == kCharacterSlot &&
+                  std::abs(st.batches[0].positions[3] - 100) < 1e-4f && std::abs(st.batches[0].positions[4] - 5) < 1e-4f &&
+                  std::abs(st.batches[0].positions[5] - 1) < 1e-4f,
+              "place_character turns, moves and puts the batches in the character slot");
+    }
     StageGeometry p0 = pose_character(c, -1, 0), p1 = pose_character(c, 0, 1.0 / 60), ph = pose_character(c, 0, 0.5 / 60);
     check(p0.batches.size() == 1 && p0.batches[0].positions[3] == 1, "bind pose");
     check(p1.batches.size() == 1 && std::abs(p1.batches[0].positions[3] - 11) < 1e-4, "key at tick 80 moves the bone +10");
@@ -368,7 +381,7 @@ void geometry_tests(const std::string& dir) {
     std::string order;
     for (int i = 0; i < db_stage_pass_count(); i++)
         if (db_stage_pass(i, &ps)) order += char('0' + ps.slot);
-    check(order == "15436207", "pass order 1 5 4 3 6 2 0 7");
+    check(order == "154362078", "pass order 1 5 4 3 6 2 0 7, then characters (8)");
     check(db_stage_pass(2, &ps) && ps.blend == 1 && !ps.z_write && !ps.fog, "slot 4 multiplies, no Z-write, no fog");
     check(db_stage_pass(6, &ps) && ps.slot == 0 && !ps.fog, "sky has no fog");
     check(db_stage_pass(4, &ps) && ps.alpha_test && ps.point_sampling, "slot 6 alpha-tested, point-sampled");

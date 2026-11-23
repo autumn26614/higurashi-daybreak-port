@@ -28,6 +28,7 @@ int main(int argc, char** argv) {
     float eye[3], target[3];
     bool have_eye = false, have_target = false;
     int anim = -1;
+    std::vector<std::string> puts;
     double seconds = 0;
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--overlay") && i + 1 < argc) overlays.push_back(argv[++i]);
@@ -36,6 +37,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--eye") && i + 1 < argc) have_eye = parse3(argv[++i], eye);
         else if (!strcmp(argv[i], "--target") && i + 1 < argc) have_target = parse3(argv[++i], target);
         else if (!strcmp(argv[i], "--anim") && i + 1 < argc) anim = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--put") && i + 1 < argc) puts.push_back(argv[++i]);
         else if (!strcmp(argv[i], "--time") && i + 1 < argc) seconds = atof(argv[++i]);
         else args.push_back(argv[i]);
     }
@@ -74,6 +76,20 @@ int main(int argc, char** argv) {
     if (g.batches.empty()) {
         fprintf(stderr, "nothing to draw\n");
         return 1;
+    }
+    // --put <model>@<spawn 1-4>: characters standing on the stage, facing the next spawn.
+    for (size_t k = 0; k < puts.size(); k++) {
+        const size_t at = puts[k].rfind('@');
+        const int spawn = at == std::string::npos ? int(k) : atoi(puts[k].c_str() + at + 1) - 1;
+        Character ch;
+        if (spawn < 0 || spawn > 3 || !load_character(set, puts[k].substr(0, at), ch, &err)) {
+            fprintf(stderr, "%s: %s\n", puts[k].c_str(), err.c_str());
+            return 1;
+        }
+        const StageGeometry posed = pose_character(ch, anim, seconds);
+        const float* pos = g.env.spawn[spawn];
+        const float* other = g.env.spawn[spawn ^ 1];
+        place_character(g, posed, pos, facing_yaw(pos, other));
     }
     Camera cam = is_character ? character_camera(g) : default_camera(g);
     if (have_eye) std::copy(eye, eye + 3, cam.eye);

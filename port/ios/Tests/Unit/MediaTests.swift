@@ -41,6 +41,18 @@ final class MediaTests: XCTestCase {
         XCTAssertThrowsError(try ArchiveOrder.order([info(.base01)], for: .base), "music alone is not enough")
     }
 
+    func testBattleSetUp() throws {
+        XCTAssertTrue(BattleView.isCharacter(Array("data/rena/00.X".utf8)))
+        XCTAssertFalse(BattleView.isCharacter(Array("data/item/01.x".utf8)))
+        XCTAssertFalse(BattleView.isCharacter(Array("data/effect/04.X".utf8)))
+        // The fixture's env.dat is all zeros: both spawns at the origin, camera still valid.
+        let s = try StageScene(urls: [fixtureURL()], stage: 1)
+        XCTAssertEqual(s.spawns.count, 4)
+        let cam = BattleView.battleCamera(s)
+        XCTAssertLessThan(cam.eye.z, cam.target.z, "the camera stands on the -z side")
+        XCTAssertGreaterThan(cam.eye.y, cam.target.y)
+    }
+
     func testDecodedSoundLoopsAndPlayerAcceptsIt() {
         let s = DecodedSound(channels: 2, rate: 22050, samples: [Int16](repeating: 100, count: 2000), loopStart: 100,
                              loopEnd: 900)

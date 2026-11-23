@@ -110,6 +110,7 @@ final class StageScene {
     let defaultCamera: StageCamera
     let parseErrors: Int
     let mode3: Bool  // drawn in render mode 3 (plain set)
+    let spawns: [SIMD3<Float>]  // env.dat players 1-4
 
     private let archives: OpaquePointer
     private let geometry: OpaquePointer
@@ -152,6 +153,8 @@ final class StageScene {
         fogStart = Float(env.fog_start)
         fogEnd = Float(env.fog_end)
         fogColor = SIMD3(Float(env.fog_rgb.0), Float(env.fog_rgb.1), Float(env.fog_rgb.2)) / 255
+        let sp = env.spawn
+        spawns = [sp.0, sp.1, sp.2, sp.3].map { SIMD3($0.0, $0.1, $0.2) }
         var cam = DBCamera()
         db_geometry_default_camera(geometry, &cam)
         defaultCamera = StageCamera(cam)
