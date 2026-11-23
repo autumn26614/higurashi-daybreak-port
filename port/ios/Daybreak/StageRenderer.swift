@@ -46,7 +46,12 @@ final class StageRenderer: NSObject, MTKViewDelegate {
         let indices: MTLBuffer
         let indexCount: Int
         let texture: MTLTexture?
+        let normals: MTLBuffer?  // characters: drawn again as an outline
     }
+    private var outlinePipeline: MTLRenderPipelineState?
+    /// Draw the characters' outline pass (game vertex shader 0x62FD94). Off for comparisons
+    /// with the CPU reference renderer, which has no outline.
+    var outlines = true
     private var gpu: [GPUBatch] = []
     private(set) var scene: StageScene?
 
@@ -107,6 +112,24 @@ final class StageRenderer: NSObject, MTKViewDelegate {
             }
         }
 
+        // Outline: position from buffer 0, normal from buffer 2.
+        let od = MTLVertexDescriptor()
+        od.attributes[0].format = .float3
+        od.attributes[0].offset = 0
+        od.attributes[0].bufferIndex = 0
+        od.attributes[3].format = .float3
+        od.attributes[3].offset = 0
+        od.attributes[3].bufferIndex = 2
+        od.layouts[0].stride = MemoryLayout<StageVertex>.stride
+        od.layouts[2].stride = 12
+        let opd = MTLRenderPipelineDescriptor()
+        opd.vertexFunction = library.makeFunction(name: "outline_vertex")
+        opd.fragmentFunction = library.makeFunction(name: "outline_fragment")
+        opd.vertexDescriptor = od
+        opd.depthAttachmentPixelFormat = Self.depthFormat
+        opd.colorAttachments[0].pixelFormat = colorFormat
+        let outline = try? device.makeRenderPipelineState(descriptor: opd)
+
         func depth(_ write: Bool) -> MTLDepthStencilState? {
             let d = MTLDepthStencilDescriptor()
             d.depthCompareFunction = .lessEqual  // D3DCMP_LESSEQUAL (default ZFUNC)
@@ -133,6 +156,7 @@ final class StageRenderer: NSObject, MTKViewDelegate {
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: 1, height: 1, mipmapped: false)
         guard let placeholder = device.makeTexture(descriptor: td) else { throw RendererError.setup("texture") }
         white = placeholder
+        outlinePipeline = outline
         super.init()
         // Untextured subsets (and textures missing from the archives) sample white, like
         // the CPU reference renderer; the result is modulated by the vertex colour.
@@ -174,8 +198,10 @@ final class StageRenderer: NSObject, MTKViewDelegate {
                   let vb = device.makeBuffer(bytes: b.vertices, length: b.vertices.count * MemoryLayout<StageVertex>.stride),
                   let ib = device.makeBuffer(bytes: b.indices, length: b.indices.count * 4)
             else { return nil }
+            let nb = b.normals.count == b.vertices.count * 3 && !b.normals.isEmpty
+                ? device.makeBuffer(bytes: b.normals, length: b.normals.count * 4) : nil
             return GPUBatch(slot: b.slot, power: b.power, vertices: vb, indices: ib, indexCount: b.indices.count,
-                            texture: b.textureFound ? textureCache[b.textureName] : nil)
+                            texture: b.textureFound ? textureCache[b.textureName] : nil, normals: nb)
         }
     }
 
@@ -238,6 +264,21 @@ final class StageRenderer: NSObject, MTKViewDelegate {
                 encoder.drawIndexedPrimitives(type: .triangle, indexCount: b.indexCount, indexType: .uint32,
                                               indexBuffer: b.indices, indexBufferOffset: 0)
             }
+        }
+        // Character outlines: back faces pushed outwards, black.
+        if outlines, let outlinePipeline {
+            encoder.setRenderPipelineState(outlinePipeline)
+            encoder.setDepthStencilState(depthWrite)
+            encoder.setCullMode(.front)
+            encoder.setVertexBytes(&u, length: MemoryLayout<StageUniforms>.stride, index: 1)
+            for b in gpu {
+                guard let nb = b.normals else { continue }
+                encoder.setVertexBuffer(b.vertices, offset: 0, index: 0)
+                encoder.setVertexBuffer(nb, offset: 0, index: 2)
+                encoder.drawIndexedPrimitives(type: .triangle, indexCount: b.indexCount, indexType: .uint32,
+                                              indexBuffer: b.indices, indexBufferOffset: 0)
+            }
+            encoder.setCullMode(.back)
         }
     }
 

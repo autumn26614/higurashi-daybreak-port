@@ -16,6 +16,7 @@ struct StageBatch {
     let indices: [UInt32]
     let textureName: [UInt8]  // raw cp932 archive entry, empty if the material has none
     let textureFound: Bool
+    var normals: [Float] = []  // xyz per vertex: characters, for the outline pass
 }
 
 /// A decoded texture with its authored mip levels (the game's "<name>_N" files), RGBA.
@@ -191,7 +192,8 @@ final class StageScene {
             let name: [UInt8] = b.texture_len > 0
                 ? Array(UnsafeRawBufferPointer(start: b.texture, count: Int(b.texture_len))) : []
             batches.append(StageBatch(slot: Int(b.slot), power: b.power, vertices: vertices, indices: indices,
-                                      textureName: name, textureFound: b.texture_found != 0))
+                                      textureName: name, textureFound: b.texture_found != 0,
+                                      normals: b.normals.map { Array(UnsafeBufferPointer(start: $0, count: n * 3)) } ?? []))
         }
         return batches
     }

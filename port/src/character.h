@@ -9,11 +9,14 @@
 //   sum over bones of weight * (v * offset * combined)
 // and a mesh without skin uses its frame's combined matrix.
 //
-// Shading is an APPROXIMATION. The game draws characters with compiled D3D9 shaders
-// (embedded "pshader" blobs, not decoded). Here each vertex is lit like the fixed-function
-// pipeline with the device light from 0x5D6500 (directional, direction normalize(1,-1,1),
-// diffuse white): colour = clamp(emissive + diffuse * max(0, N . -L)), baked into the
-// vertex colours so the stage renderers (raster.h, Metal) draw it unchanged.
+// Shading follows the game's character effect (decoded with analysis/tools/sm1dis.py):
+//   vertex shader 0x630874: u = clamp(N . L, 0, 1), L = (0, 0.287348, 0.957826) in world space
+//   pixel shader 0x63071c:  colour = texture * saturate(toon(u, 0.5) + MaterialColor)
+// with MaterialColor = the material's emissive colour (0x5D20D7) and toon = data/directX/
+// toon.cnv. Here it is evaluated per vertex and baked into the vertex colours, so the stage
+// renderers (raster.h, Metal) draw it unchanged. Not reproduced: the shadow-map term of that
+// shader (a 0.1 darkening where the light-space depth test fails) and the outline pass
+// (vertex shader 0x62FD94: vertices pushed ~1.1 px along the screen-space normal).
 #pragma once
 #include <array>
 #include <cstdint>
@@ -67,6 +70,7 @@ struct Character {
     std::vector<CharMesh> meshes;
     std::vector<CharAnim> anims;
     double ticks_per_second = 4800;
+    std::vector<float> toon;  // toon ramp, RGB per texel (data/directX/toon.cnv), empty if missing
     std::vector<std::string> errors;
 };
 

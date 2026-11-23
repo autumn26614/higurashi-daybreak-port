@@ -6,6 +6,7 @@
 #include <map>
 #include <set>
 
+#include "cnv.h"
 #include "stage.h"
 
 namespace db {
@@ -272,6 +273,20 @@ M sample(const CharAnimTrack& t, double tick) {
 bool load_character(const Source& a, const std::string& path, Character& c, std::string* err) {
     c = Character{};
     c.path = path;
+    // Toon ramp used by the character effects (0x5D0293: "%s/toon.bmp" under data/directx;
+    // the same image is also in data/effect).
+    for (const char* ramp : {"data/directX/toon.cnv", "data/effect/toon.cnv"}) {
+        const Entry* e = a.find(ramp);
+        std::vector<uint8_t> d;
+        Image img;
+        std::string e2;
+        if (e && a.read(*e, d, &e2) && decode_image(d, img, &e2) && img.width > 0 && img.height > 0) {
+            const size_t row = img.height / 2;
+            for (size_t x = 0; x < img.width; x++)
+                for (int ch = 0; ch < 3; ch++) c.toon.push_back(img.rgba[(row * img.width + x) * 4 + size_t(ch)] / 255.0f);
+            break;
+        }
+    }
     XFile x;
     if (!load_x(a, path, x, err)) return false;
     const size_t slash = path.rfind('/');
@@ -315,6 +330,18 @@ std::vector<std::string> list_characters(const Archive& a) {
     return out;
 }
 
+// The toon ramp (data/effect/toon.cnv, 64 wide, rows identical) sampled at u, v = 0.5,
+// with linear filtering; a plain 0..1 ramp if the texture is missing.
+double ramp_at(const std::vector<float>& toon, double u, int ch) {
+    if (toon.size() < 3) return u;
+    const size_t n = toon.size() / 3;
+    const double x = std::min(double(n) - 1, std::max(0.0, u * double(n) - 0.5));
+    const size_t i = size_t(x);
+    const double f = x - double(i);
+    const size_t j = std::min(n - 1, i + 1);
+    return toon[i * 3 + size_t(ch)] * (1 - f) + toon[j * 3 + size_t(ch)] * f;
+}
+
 StageGeometry pose_character(const Character& c, int anim, double seconds) {
     StageGeometry g;
     std::vector<M> local(c.nodes.size());
@@ -330,9 +357,9 @@ StageGeometry pose_character(const Character& c, int anim, double seconds) {
     for (size_t i = 0; i < c.nodes.size(); i++)  // parents precede children
         world[i] = c.nodes[i].parent < 0 ? local[i] : mul(local[i], world[size_t(c.nodes[i].parent)]);
 
-    // Device light 0 (0x5D6500): directional along normalize(1, -1, 1); N . -L lights.
-    const double inv = 1.0 / std::sqrt(3.0);
-    const double to_light[3] = {-inv, inv, -inv};
+    // The character vertex shader (0x630874, vs_1_1): a fixed world-space light
+    // L = (0, 0.287348, 0.957826), ramp coordinate clamp(N . L, 0, 1).
+    const double to_light[3] = {0.0, 0.287348, 0.957826};
 
     for (size_t mi = 0; mi < c.meshes.size(); mi++) {
         const CharMesh& m = c.meshes[mi];
@@ -380,15 +407,19 @@ StageGeometry pose_character(const Character& c, int anim, double seconds) {
                         it = remap.emplace(v, uint32_t(remap.size())).first;
                         double n[3] = {nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]};
                         const double l = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-                        const double d = l > 0 ? std::max(0.0, (n[0] * to_light[0] + n[1] * to_light[1] + n[2] * to_light[2]) / l) : 1.0;
+                        const double ndl = l > 0 ? (n[0] * to_light[0] + n[1] * to_light[1] + n[2] * to_light[2]) / l : 1.0;
+                        const double u = std::min(1.0, std::max(0.0, ndl));
                         for (int ch = 0; ch < 3; ch++) {
                             b.positions.push_back(float(pos[v * 3 + size_t(ch)]));
-                            const double col = b.mat.emissive[ch] + b.mat.diffuse[ch] * d;
+                            // Pixel shader 0x63071c: tex * saturate(toon(u) + MaterialColor), where
+                            // MaterialColor is the material's emissive (D3DMATERIAL9 +0x30, 0x5D20D7).
+                            const double col = ramp_at(c.toon, u, ch) + b.mat.emissive[ch];
                             b.colors.push_back(uint8_t(std::lround(std::min(1.0, std::max(0.0, col)) * 255)));
                         }
                         b.colors.push_back(uint8_t(std::lround(std::min(1.0f, std::max(0.0f, b.mat.diffuse[3])) * 255)));
                         b.uvs.push_back(m.uvs[v * 2]);
                         b.uvs.push_back(m.uvs[v * 2 + 1]);
+                        for (int ch = 0; ch < 3; ch++) b.normals.push_back(l > 0 ? float(n[ch] / l) : 0.0f);
                     }
                     b.indices.push_back(it->second);
                 }

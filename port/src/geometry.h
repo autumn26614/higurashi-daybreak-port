@@ -34,6 +34,7 @@ struct GBatch {
     std::vector<uint8_t> colors;      // R, G, B, A per vertex (255s if the mesh has none)
     bool has_colors = false;          // the mesh carries MeshVertexColors
     std::vector<uint32_t> indices;    // triangles, original winding
+    std::vector<float> normals;       // x, y, z per vertex (characters only: outline pass)
     GMaterial mat;
 };
 

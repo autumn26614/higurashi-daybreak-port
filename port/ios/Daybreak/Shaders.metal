@@ -50,3 +50,25 @@ fragment float4 stage_fragment(StageVertexOut in [[stage_in]], texture2d<float> 
     }
     return c;
 }
+
+// Character outline: the game's outline pass (vertex shader 0x62FD94, vs_1_1). The normal
+// goes through the same view-projection as the position, is normalised as a 4-vector, and
+// pushes the vertex by (0.00275, 0.00366667) * w in clip space: about 1.1 px at 800x600.
+// Its colour register (c5) is never set by the game's code or effect states that were
+// found, so it is taken as black (inferred). Drawn with back faces only.
+struct OutlineVertexIn {
+    float3 position [[attribute(0)]];
+    float3 normal [[attribute(3)]];
+};
+
+vertex float4 outline_vertex(OutlineVertexIn in [[stage_in]], constant StageUniforms& u [[buffer(1)]]) {
+    float4 p = u.viewProj * float4(in.position, 1.0);
+    float4 n = u.viewProj * float4(in.normal, 0.0);
+    const float len = length(n);
+    if (len > 0) n /= len;
+    p.xy += n.xy * p.w * float2(0.00275, 0.00366667);
+    p.z += p.w * 1e-6;
+    return p;
+}
+
+fragment float4 outline_fragment() { return float4(0.0, 0.0, 0.0, 1.0); }

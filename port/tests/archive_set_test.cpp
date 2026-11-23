@@ -236,10 +236,25 @@ void character_audio_tests(const std::string& dir) {
     check(p0.batches.size() == 1 && p0.batches[0].positions[3] == 1, "bind pose");
     check(p1.batches.size() == 1 && std::abs(p1.batches[0].positions[3] - 11) < 1e-4, "key at tick 80 moves the bone +10");
     check(std::abs(ph.batches[0].positions[3] - 6) < 1e-4, "halfway between keys");
-    // Winding (0,1,2) makes the normal +z (a front face seen from +z); the light comes from
-    // (-1, 1, -1)/sqrt3, so N . -L < 0 and only the emissive colour remains.
+    // Winding (0,1,2) makes the normal +z; the shader's light is (0, 0.287348, 0.957826), so
+    // u = 0.958 and, with no toon ramp in this archive (ramp = u), every channel saturates.
     const GBatch& b = p0.batches[0];
-    check(b.colors[0] == 64 && b.colors[1] == 128 && b.colors[2] == 191, "back to the light: emissive only");
+    check(b.colors[0] == 255 && b.colors[1] == 255 && b.colors[2] == 255, "toon(N.L) + emissive saturates");
+    // Rotate the bone 180 degrees about y: the normal faces -z, u = 0, only the emissive
+    // colour remains.
+    {
+        Character r = c;
+        r.anims[0].tracks[0].keys[0] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+        const GBatch back = pose_character(r, 0, 0).batches.at(0);
+        check(back.colors[0] == 64 && back.colors[1] == 128 && back.colors[2] == 191, "facing away: emissive only");
+    }
+    {
+        Character r = c;
+        r.toon = {0.1f, 0.1f, 0.1f, 0.9f, 0.9f, 0.9f};  // two-texel ramp
+        r.anims[0].tracks[0].keys[0] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+        const GBatch back = pose_character(r, 0, 0).batches.at(0);
+        check(back.colors[0] == int(std::lround((0.1 + 0.25) * 255)), "ramp at u = 0 adds to the emissive colour");
+    }
     check(b.has_colors && b.colors[3] == 255, "opaque material alpha");
 
     Pcm pcm;

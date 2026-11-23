@@ -312,6 +312,7 @@ int32_t db_geometry_batch(const DBStageGeometry* g, int32_t i, DBBatch* out) {
     out->texture = b.mat.tex.archive_name.c_str();
     out->texture_len = int32_t(b.mat.tex.archive_name.size());
     out->texture_found = b.mat.tex.found;
+    out->normals = b.normals.empty() ? nullptr : b.normals.data();
     return 1;
 }
 

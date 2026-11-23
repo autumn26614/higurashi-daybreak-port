@@ -83,6 +83,7 @@ typedef struct {
     const char* texture;     /* raw cp932 archive entry (".cnv"); "" if none */
     int32_t texture_len;
     int32_t texture_found;
+    const float* normals;    /* xyz per vertex for the outline pass (characters), or NULL */
 } DBBatch;
 int32_t db_geometry_batch(const DBStageGeometry* g, int32_t i, DBBatch* out); /* 1 = ok */
 
