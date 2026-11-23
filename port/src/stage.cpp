@@ -45,6 +45,15 @@ namespace {
 
 using Mat4 = std::array<double, 16>;
 
+// .x numbers are parsed as doubles. Converting a negative, NaN or huge double to an integer
+// is undefined behaviour (and differs between x86 and arm64), so counts go through here:
+// the result is in [0, limit].
+size_t as_count(double v, size_t limit) {
+    if (!(v >= 0)) return 0;  // also catches NaN
+    if (v >= double(limit)) return limit;
+    return size_t(v);
+}
+
 Mat4 identity() { return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; }
 // D3D row-vector convention: combined = local * parent.
 Mat4 mul(const Mat4& a, const Mat4& b) {
@@ -81,8 +90,8 @@ struct Walker {
     void mesh(const XObject& m, const Mat4& world, int depth) {
         st.meshes++;
         const auto& n = m.nums;
-        size_t nv = n.empty() ? 0 : size_t(n[0]);
-        if (!n.empty() && 1 + nv * 3 > n.size()) nv = (n.size() - 1) / 3;  // malformed-file guard
+        // Malformed-file guards: counts are clamped to what the number list can hold.
+        size_t nv = n.empty() ? 0 : as_count(n[0], (n.size() - 1) / 3);
         Box lb, wb;
         for (size_t v = 0; v < nv && 1 + v * 3 + 2 < n.size(); v++) {
             double p[3] = {n[1 + v * 3], n[2 + v * 3], n[3 + v * 3]};
@@ -93,12 +102,12 @@ struct Walker {
             wb.add(w);
         }
         size_t fi = 1 + nv * 3;
-        long nf = fi < n.size() ? long(n[fi]) : 0, tris = 0;
+        long nf = fi < n.size() ? long(as_count(n[fi], n.size() - fi - 1)) : 0, tris = 0;
         size_t q = fi + 1;
         for (long f = 0; f < nf && q < n.size(); f++) {
-            long cnt = long(n[q]);
-            tris += std::max(0L, cnt - 2);
-            q += size_t(cnt) + 1;
+            size_t cnt = as_count(n[q], n.size() - q - 1);
+            tris += long(cnt >= 2 ? cnt - 2 : 0);
+            q += cnt + 1;
         }
         st.verts += long(nv);
         st.faces += nf;

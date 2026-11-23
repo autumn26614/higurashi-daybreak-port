@@ -56,7 +56,15 @@ X_FILE_2 = (X_FILE
             .replace(" 0.0;100.0;0.0;;\n 1;\n 3;0,1,2;;",
                      " 0.0;100.0;0.0;,\n 100.0;100.0;0.0;;\n 2;\n 3;0,1,2;,\n 3;1,3,2;;")
             .replace("  1;\n  0;;", "  2;\n  0,\n  0;;"))
-assert X_FILE_2 != X_FILE and X_FILE_2.count("3;1,3,2;;") == 1
+
+
+def require(ok, what):
+    # Not assert: python -O would strip it and silently write a wrong fixture.
+    if not ok:
+        raise SystemExit("make_fixture: " + what)
+
+
+require(X_FILE_2 != X_FILE and X_FILE_2.count("3;1,3,2;;") == 1, "overlay mesh edit did not apply")
 
 
 def cnv_image():
@@ -73,7 +81,7 @@ def build(entries):
     offset = data_start
     for name, body in entries:
         raw_name = name.encode("cp932")
-        assert len(raw_name) < 0x104
+        require(len(raw_name) < 0x104, "name too long: " + name)
         index += raw_name.ljust(0x104, b"\0") + struct.pack("<II", len(body), offset)
         key = ((offset >> 1) | 8) & 0xFF
         payload += bytes(b ^ key for b in body)
@@ -91,7 +99,8 @@ def main():
         print(__doc__)
         return 2
     # cp932 bytes of the texture name must not contain 0x5C ('\\') or 0x22 ('"').
-    assert all(b not in (0x5C, 0x22) for b in TEXTURE.encode("cp932"))
+    # (The .x tokenizer treats them as escape/quote inside the TextureFilename string.)
+    require(all(b not in (0x5C, 0x22) for b in TEXTURE.encode("cp932")), "texture name has 0x5C or 0x22")
     entries = [
         ("data/stage01/env.dat", bytes(84)),
         ("data/stage01/00.x", X_FILE.encode("cp932")),

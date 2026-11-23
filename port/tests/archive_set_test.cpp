@@ -3,6 +3,7 @@
 // Usage: archive_set_test <scratch-dir>. Exit status 0 = PASS.
 #include <cstdint>
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <utility>
@@ -25,33 +26,142 @@ void check(bool ok, const char* what) {
 using Files = std::vector<std::pair<std::string, std::string>>;
 
 // Same layout as port/tools/make_fixture.py (analysis/02-archive-format.md).
-// `pad` shifts the payload so the two archives use different per-entry XOR keys.
-bool write_archive(const std::string& path, const Files& files, size_t pad) {
+// `pad` shifts the payload so archives use different per-entry XOR keys.
+std::vector<uint8_t> build_archive(const Files& files, size_t pad, bool xor_index = true) {
     const size_t n = files.size();
     std::vector<uint8_t> index(n * 0x10C, 0), payload(pad, 0xEE);
     uint32_t off = uint32_t(2 + n * 0x10C + pad);
     for (size_t i = 0; i < n; ++i) {
         uint8_t* e = &index[i * 0x10C];
-        memcpy(e, files[i].first.data(), files[i].first.size());
+        memcpy(e, files[i].first.data(), std::min<size_t>(files[i].first.size(), 0x104));
         uint32_t size = uint32_t(files[i].second.size());
-        memcpy(e + 0x104, &size, 4);
-        memcpy(e + 0x108, &off, 4);
+        for (int b = 0; b < 4; ++b) e[0x104 + b] = uint8_t(size >> (8 * b)), e[0x108 + b] = uint8_t(off >> (8 * b));
         uint8_t k = uint8_t((off >> 1) | 8);
         for (char c : files[i].second) payload.push_back(uint8_t(c) ^ k);
         off += size;
     }
     uint8_t key = 100, step = 100;
     for (auto& b : index) {
-        b ^= key;
+        if (xor_index) b ^= key;
         key = uint8_t(key + step);
         step = uint8_t(step + 0x4D);
     }
+    std::vector<uint8_t> out = {uint8_t(n), uint8_t(n >> 8)};
+    out.insert(out.end(), index.begin(), index.end());
+    out.insert(out.end(), payload.begin(), payload.end());
+    return out;
+}
+
+bool write_bytes(const std::string& path, const std::vector<uint8_t>& bytes) {
     FILE* f = fopen(path.c_str(), "wb");
     if (!f) return false;
-    uint8_t cnt[2] = {uint8_t(n), uint8_t(n >> 8)};
-    bool ok = fwrite(cnt, 1, 2, f) == 2 && fwrite(index.data(), 1, index.size(), f) == index.size() &&
-              fwrite(payload.data(), 1, payload.size(), f) == payload.size();
+    bool ok = bytes.empty() || fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
     return fclose(f) == 0 && ok;
+}
+
+bool write_archive(const std::string& path, const Files& files, size_t pad) {
+    return write_bytes(path, build_archive(files, pad));
+}
+
+std::string read_str(const Source& s, const std::string& name) {
+    const Entry* e = s.find(name);
+    std::vector<uint8_t> out;
+    std::string err;
+    if (!e || !s.read(*e, out, &err)) return "<missing>";
+    return std::string(out.begin(), out.end());
+}
+
+// Re-encrypts one decoded index field in an already built archive (entry i, byte offset
+// `at` inside the 0x10C-byte record) so corrupt indexes can be made precisely.
+void poke_index(std::vector<uint8_t>& a, size_t i, size_t at, const std::vector<uint8_t>& bytes) {
+    uint8_t key = 100, step = 100;
+    const size_t start = i * 0x10C + at;
+    for (size_t pos = 0; pos < start + bytes.size(); ++pos) {
+        if (pos >= start) a[2 + pos] = bytes[pos - start] ^ key;
+        key = uint8_t(key + step);
+        step = uint8_t(step + 0x4D);
+    }
+}
+
+std::vector<uint8_t> le32(uint32_t v) { return {uint8_t(v), uint8_t(v >> 8), uint8_t(v >> 16), uint8_t(v >> 24)}; }
+
+// Corrupt and edge-case archives: open() must fail cleanly (no crash, no huge allocation)
+// or, for the valid edge cases, read the right bytes.
+void validation_tests(const std::string& dir) {
+    const std::string path = dir + "/corrupt.dat";
+    const Files one = {{"data/a.txt", "hello"}};
+    std::string err;
+    auto opens = [&](const std::vector<uint8_t>& bytes) {
+        Archive a;
+        err.clear();
+        return write_bytes(path, bytes) && a.open(path, &err);
+    };
+    const std::vector<uint8_t> good = build_archive(one, 0);
+    check(opens(good), "valid one-entry archive opens");
+
+    check(!opens({}), "empty file is rejected");
+    check(!opens({good.begin(), good.begin() + 2 + 0x10C - 1}), "truncated index is rejected");
+    check(!opens({good.begin(), good.end() - 1}) && err.find("outside the file") != std::string::npos,
+          "payload one byte short is rejected at open");
+
+    std::vector<uint8_t> huge = good;
+    poke_index(huge, 0, 0x104, le32(0xFFFFFFFFu));
+    check(!opens(huge), "entry size 0xFFFFFFFF is rejected before any allocation");
+
+    std::vector<uint8_t> past = good;
+    poke_index(past, 0, 0x108, le32(uint32_t(good.size())));
+    check(!opens(past), "offset at end of file with non-zero size is rejected");
+
+    std::vector<uint8_t> inside = good;
+    poke_index(inside, 0, 0x108, le32(10));
+    check(!opens(inside), "payload overlapping the index is rejected");
+
+    std::vector<uint8_t> unterminated = good;
+    poke_index(unterminated, 0, 0, std::vector<uint8_t>(0x104, 'a'));
+    check(!opens(unterminated) && err.find("not terminated") != std::string::npos, "unterminated 0x104-byte name");
+
+    std::vector<uint8_t> noname = good;
+    poke_index(noname, 0, 0, {0});
+    check(!opens(noname), "empty name is rejected");
+
+    check(!opens(build_archive(one, 0, false)), "index without the rolling XOR (wrong key) is rejected");
+
+    {
+        Archive a;
+        check(write_bytes(path, build_archive({}, 0)) && a.open(path, &err) && a.entries().empty(),
+              "count 0 opens with no entries");
+    }
+    {
+        Archive a;
+        check(write_bytes(path, build_archive({{"Data/Dup.txt", "first"}, {"data/dup.txt", "second"}}, 0)) &&
+                  a.open(path, &err) && read_str(a, "data/dup.txt") == "first",
+              "duplicate names: the first entry wins");
+    }
+    {
+        // Offsets past 64 KiB: the per-entry key ((offset >> 1) | 8) & 0xFF must wrap.
+        Archive a;
+        const size_t pad = 70001;
+        check(write_bytes(path, build_archive({{"data/far.txt", "far away"}}, pad)) && a.open(path, &err) &&
+                  a.entries()[0].offset > 0x10000 && read_str(a, "data/far.txt") == "far away",
+              "payload beyond 64 KiB decodes");
+    }
+    {
+        // cp932 names: trail byte 0x5C ('\') in 0x95 0x5C, and an ASCII-range trail byte 0x41.
+        Archive a;
+        const std::string backslash_trail = "data/\x95\x5C.txt", upper_trail = "data/\x83\x41.txt";
+        check(write_bytes(path, build_archive({{backslash_trail, "hyou"}, {upper_trail, "a"}}, 0)) &&
+                  a.open(path, &err) && read_str(a, backslash_trail) == "hyou" && read_str(a, upper_trail) == "a",
+              "cp932 names with 0x5C and 0x41 trail bytes are found");
+    }
+    {
+        Archive a;
+        check(!a.open(dir + "/does-not-exist.dat", nullptr), "null err pointer: open failure does not crash");
+        std::vector<uint8_t> out;
+        Entry e;
+        check(!a.read(e, out, nullptr), "null err pointer: read on a closed archive does not crash");
+        check(write_bytes(path, good) && a.open(path, nullptr) && a.open(path, nullptr) && read_str(a, "data/a.txt") == "hello",
+              "reopening the same Archive works");
+    }
 }
 
 std::string mesh(int tris) {
@@ -63,14 +173,6 @@ std::string mesh(int tris) {
     s += ";;\n  Material {\n   1.0;1.0;1.0;1.0;;\n   0.0;\n   0.0;0.0;0.0;;\n   0.0;0.0;0.0;;\n"
          "   TextureFilename {\n    \"grass.bmp\";\n   }\n  }\n }\n}\n";
     return s;
-}
-
-std::string read_str(const Source& s, const std::string& name) {
-    const Entry* e = s.find(name);
-    std::vector<uint8_t> out;
-    std::string err;
-    if (!e || !s.read(*e, out, &err)) return "<missing>";
-    return std::string(out.begin(), out.end());
 }
 
 }  // namespace
@@ -139,6 +241,8 @@ int main(int argc, char** argv) {
     check(r1 && db_stage_triangle_count(r1, 0) == 1, "C API single-archive call unchanged");
     db_stage_report_free(r1);
     check(db_stage_report_open_set(paths, 0, 1, cerr, sizeof cerr) == nullptr, "C API rejects an empty set");
+
+    validation_tests(argv[1]);
 
     printf("%s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;

@@ -91,6 +91,16 @@ int main(int argc, char** argv) {
     check(!decode_image(image(32, 0, 1, 0, 0, {}), img, &err), "rejects zero size");
     check(!decode_image({32, 1, 0}, img, &err), "rejects a truncated header");
 
+    // Size limits: 16384 is the largest accepted dimension (cnv.cpp keeps the size math in
+    // 64 bits below it); 16385 is rejected before any pixel buffer is allocated.
+    check(decode_image(image(32, 16384, 1, 16384, 0, std::vector<uint8_t>(16384 * 4)), img, &err) &&
+              img.rgba.size() == 16384 * 4,
+          "16384x1 is accepted");
+    check(!decode_image(image(32, 16385, 1, 16385, 0, std::vector<uint8_t>(16385 * 4)), img, &err),
+          "16385 wide is rejected");
+    check(!decode_image(image(32, 1, 16385, 1, 0, {}), img, &err), "16385 tall is rejected without pixel data");
+    check(!decode_image(image(32, 1, 1, 0xFFFFFFFFu, 0, {}), img, &err), "pitch 0xFFFFFFFF is rejected");
+
     Sound s;
     check(cnv_kind(sound(4, 4)) == CnvKind::Sound, "PCM header classified as sound");
     check(decode_sound(sound(4, 6), s, &err) && s.channels == 1 && s.rate == 22050 && s.bits == 16 &&

@@ -1,12 +1,15 @@
 CXX      ?= g++
 CC       ?= cc
-CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
-CFLAGS   ?= -std=c11 -O2 -Wall -Wextra
+# Extra flags from the environment are appended, never replace the required ones.
+# -ffp-contract=off: no fused multiply-add, so bounding boxes match on x86-64 and arm64.
+override CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -ffp-contract=off $(CXXFLAGS)
+override CFLAGS   := -std=c11 -O2 -Wall -Wextra -ffp-contract=off $(CFLAGS)
 LIB      := src/archive.cpp src/cnv.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp
-BIN      := build/stageinfo
-CAPI     := build/capi_test
-SETTEST  := build/archive_set_test
-CNVTEST  := build/cnv_test
+BUILD    ?= build
+BIN      := $(BUILD)/stageinfo
+CAPI     := $(BUILD)/capi_test
+SETTEST  := $(BUILD)/archive_set_test
+CNVTEST  := $(BUILD)/cnv_test
 
 # glibc has iconv built in; macOS ships it as a separate libiconv.
 ifeq ($(shell uname -s),Darwin)
@@ -39,7 +42,16 @@ test: $(SETTEST) $(CNVTEST)
 	$(SETTEST) $(dir $(SETTEST))
 	$(CNVTEST) ios/Fixtures
 
+# Same tests under AddressSanitizer + UBSan, built into build/asan.
+SANFLAGS := -g -O1 -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined
+asan:
+	$(MAKE) BUILD=build/asan CXXFLAGS="$(SANFLAGS)" CFLAGS="$(SANFLAGS)" test
+
+# The iOS app builds with DB_NO_ICONV=1 (ios/project.yml); run the tests that way too.
+noiconv:
+	$(MAKE) BUILD=build/noiconv CXXFLAGS="-DDB_NO_ICONV=1" test
+
 clean:
 	rm -rf build
 
-.PHONY: all clean test
+.PHONY: all clean test asan noiconv

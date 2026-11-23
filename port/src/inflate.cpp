@@ -53,6 +53,24 @@ int build(Huffman& h, const short* length, int n) {
     return left;
 }
 
+struct FixedTables {
+    Huffman len, dist;
+};
+
+FixedTables make_fixed_tables() {
+    FixedTables t;
+    short lengths[288];
+    int s = 0;
+    for (; s < 144; s++) lengths[s] = 8;
+    for (; s < 256; s++) lengths[s] = 9;
+    for (; s < 280; s++) lengths[s] = 7;
+    for (; s < 288; s++) lengths[s] = 8;
+    build(t.len, lengths, 288);
+    for (s = 0; s < 30; s++) lengths[s] = 5;
+    build(t.dist, lengths, 30);
+    return t;
+}
+
 int decode(BitReader& br, const Huffman& h) {
     int code = 0, first = 0, index = 0;
     for (int len = 1; len < 16; len++) {
@@ -122,20 +140,11 @@ bool inflate_raw(const uint8_t* in, size_t in_len, const std::vector<uint8_t>& d
             win.insert(win.end(), in + br.pos, in + br.pos + len);
             br.pos += len;
         } else if (type == 1) {  // fixed Huffman
-            static Huffman lencode, distcode;
-            static bool init = false;
-            if (!init) {
-                short lengths[288];
-                int s = 0;
-                for (; s < 144; s++) lengths[s] = 8;
-                for (; s < 256; s++) lengths[s] = 9;
-                for (; s < 280; s++) lengths[s] = 7;
-                for (; s < 288; s++) lengths[s] = 8;
-                build(lencode, lengths, 288);
-                for (s = 0; s < 30; s++) lengths[s] = 5;
-                build(distcode, lengths, 30);
-                init = true;
-            }
+            // Built once; a function-local static is initialised thread-safely (C++11), which
+            // matters because stage and texture loads can run on different threads.
+            static const FixedTables fixed = make_fixed_tables();
+            const Huffman& lencode = fixed.len;
+            const Huffman& distcode = fixed.dist;
             if (!codes(br, win, lencode, distcode)) {
                 *err = "inflate: bad fixed block";
                 return false;
