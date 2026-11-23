@@ -43,7 +43,8 @@ final class StageRendererTests: XCTestCase {
     }
 
     func testRecipeIsTheGameOrder() {
-        XCTAssertEqual(StagePass.recipe.map(\.slot), [1, 5, 4, 3, 6, 2, 0, 7])
+        XCTAssertEqual(StagePass.recipe.map(\.slot), [1, 5, 4, 3, 6, 2, 0, 7, 8], "stage slots, then characters")
+        XCTAssertEqual(StagePass.recipe.filter(\.mode3).map(\.slot), [1, 5, 3, 6, 2], "render mode 3 passes")
         XCTAssertEqual(StagePass.recipe[2].blend, .multiply)
         XCTAssertFalse(StagePass.recipe[2].zWrite)
         let additive = StagePass.recipe[0].forBatch(power: 8)
