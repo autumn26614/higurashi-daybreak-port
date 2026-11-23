@@ -58,7 +58,7 @@ struct ContentView: View {
                         Text(errorText).foregroundStyle(.red).accessibilityIdentifier("error")
                     }
                     if report == nil && !loading && !usingFixture {
-                        Text("Or copy the .dat files into Files › On My iPhone › Daybreak: they are picked up automatically.")
+                        Text("Or copy the .dat files into Files › On My iPhone › Higurashi Daybreak: they are picked up automatically.")
                             .font(.footnote).foregroundStyle(.secondary)
                             .accessibilityIdentifier("dropHint")
                     }

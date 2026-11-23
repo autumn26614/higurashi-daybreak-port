@@ -30,7 +30,7 @@ Not implemented: gameplay (battles, input, characters' moves and hit boxes), men
 
 ## Build on a Mac
 Requirements: Xcode 15 or newer, an iOS 16+ device or simulator. Get `daybreak00.dat` (1.5 GB) onto the device in one of two ways:
-- Copy it into the app's own folder: Files app → On My iPhone → Daybreak (created on first launch, with a note), or Finder file sharing from a Mac. The app scans that folder (and folders inside it) automatically: at launch, when it comes back to the foreground, whenever the folder changes, and every few seconds while nothing is loaded, so files are picked up as soon as a copy finishes, whatever their names.
+- Copy it into the app's own folder: Files app → On My iPhone → Higurashi Daybreak (created on first launch, with a note), or Finder file sharing from a Mac. The app scans that folder (and folders inside it) automatically: at launch, when it comes back to the foreground, whenever the folder changes, and every few seconds while nothing is loaded, so files are picked up as soon as a copy finishes, whatever their names.
 - Or keep it anywhere the Files app reaches (iCloud Drive, another app's folder) and pick it with the button. The app remembers the pick (a bookmark) and reopens it at the next launch.
 
 ### Option A: XcodeGen (quickest)
@@ -92,7 +92,7 @@ Every resolved row under **All textures** opens a preview. The preview decodes t
 1. Run the **iOS device build (unsigned)** workflow (`gh workflow run ios-device.yml`) and download the `Daybreak-unsigned-ipa` artifact. The workflow fails if the app contains any `.dat` other than the two synthetic fixtures, or any file over 20 MB, so no game data can end up in it.
 2. Sign and install it from Windows with a sideloading tool such as Sideloadly and your Apple ID. A free Apple ID signs apps for 7 days, after which you re-sign. A paid developer account allows TestFlight instead; that needs signing secrets in CI and is not set up.
 3. On the iPhone (iOS 16+): Settings → Privacy & Security → Developer Mode → on, then trust the developer profile under Settings → General → VPN & Device Management.
-4. Copy `daybreak00.dat` (and `daybreak04.dat` for Kai) into Files → On My iPhone → Daybreak, then open the app.
+4. Copy `daybreak00.dat` (and `daybreak04.dat` for Kai) into Files → On My iPhone → Higurashi Daybreak, then open the app.
 
 ## CI: simulator test without game data
 `.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow or port/) runs on `macos-15-intel` (x86_64) and, experimentally, `macos-15` (arm64):

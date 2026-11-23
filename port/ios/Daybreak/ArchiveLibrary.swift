@@ -118,8 +118,8 @@ struct BookmarkStore {
 }
 
 /// Archives the user copied into the app's own Documents folder (Files app: On My iPhone >
-/// Daybreak, or Finder file sharing). These need no security scope.
-/// The app's own folder: Files > On My iPhone > Daybreak (UIFileSharingEnabled and
+/// Higurashi Daybreak, or Finder file sharing). These need no security scope.
+/// The app's own folder: Files > On My iPhone > Higurashi Daybreak (UIFileSharingEnabled and
 /// LSSupportsOpeningDocumentsInPlace). Game archives dropped there are found automatically.
 enum DocumentsFolder {
     static var url: URL {
