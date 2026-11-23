@@ -78,7 +78,7 @@ The same C call (`db_stage_report_open_set`, 04 then 00) was checked on Linux ag
 Every resolved row under **All textures** opens a preview. The preview decodes that `.cnv` from the same archives, in the same search order, through `db_archives_open` / `db_image_load`. It shows the texture at its stored pixels without smoothing, with its size and bpp. Decoding was checked against all 5,418 images in daybreak00 and Kai daybreak04 on Linux (`port/README.md`, "Textures"). On iOS it is so far exercised only with the fixture texture: 2×2 red, green, blue and white.
 
 ## CI: simulator test without game data
-`.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow file) runs on a `macos-15` runner:
+`.github/workflows/ios-simulator.yml` (manual trigger, or a push to main that changes the workflow file) runs on `macos-15-intel` (x86_64) and, experimentally, `macos-15` (arm64):
 1. Regenerates `Fixtures/fixture.dat` and `fixture-overlay.dat` with `port/tools/make_fixture.py` and requires both to match the committed copies byte for byte.
 2. Builds `port/` natively with clang and runs `capi_test … fixture` and `make test`.
 3. `xcodegen generate`, then `xcodebuild test` on the newest available iPhone simulator (`ci/pick_simulator.py`), unsigned (`CODE_SIGNING_ALLOWED=NO`).

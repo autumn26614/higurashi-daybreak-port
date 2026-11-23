@@ -7,14 +7,28 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/ios-simulator.yml']
+    paths: ['.github/workflows/ios-simulator.yml', 'port/**']
 
 permissions:
   contents: read
 
 jobs:
   ios-simulator:
-    runs-on: macos-15-intel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x86_64
+            experimental: false
+          # Apple silicon. Experimental until its queue time and images are known: an
+          # earlier attempt was cancelled before it got a worker.
+          - runner: macos-15
+            arch: arm64
+            experimental: true
+    name: ios-simulator (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +36,7 @@ jobs:
       - name: Tool versions
         run: |
           sw_vers
+          uname -m
           xcodebuild -version
           python3 --version
 
@@ -35,8 +50,12 @@ jobs:
         working-directory: port
         run: |
           make CXX=clang++ CC=clang
+          file build/capi_test
+          file build/capi_test | grep -q "${{ matrix.arch }}"
           build/capi_test ios/Fixtures/fixture.dat 1 fixture
           make CXX=clang++ CC=clang test
+          make CXX=clang++ CC=clang noiconv
+          make CXX=clang++ CC=clang asan
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -50,6 +69,9 @@ jobs:
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 port/ios/ci/pick_simulator.py)
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          # Boot before xcodebuild so the first UI query does not race the boot.
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
 
       - name: Build and test in the iOS Simulator
         working-directory: port/ios
@@ -67,7 +89,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator-results
+          name: ios-simulator-results-${{ matrix.arch }}
           path: |
             ${{ runner.temp }}/TestResults.xcresult
             ${{ runner.temp }}/xcodebuild.log
