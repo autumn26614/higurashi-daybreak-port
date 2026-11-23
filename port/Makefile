@@ -4,20 +4,21 @@ CC       ?= cc
 # -ffp-contract=off: no fused multiply-add, so bounding boxes match on x86-64 and arm64.
 override CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -ffp-contract=off $(CXXFLAGS)
 override CFLAGS   := -std=c11 -O2 -Wall -Wextra -ffp-contract=off $(CFLAGS)
-LIB      := src/archive.cpp src/cnv.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp src/identify.cpp src/scenario.cpp
+LIB      := src/archive.cpp src/cnv.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp src/identify.cpp src/scenario.cpp src/geometry.cpp src/raster.cpp
 BUILD    ?= build
 BIN      := $(BUILD)/stageinfo
 CAPI     := $(BUILD)/capi_test
 SETTEST  := $(BUILD)/archive_set_test
 CNVTEST  := $(BUILD)/cnv_test
 SCNTEST  := $(BUILD)/scenario_test
+RENDER   := $(BUILD)/render_stage
 
 # glibc has iconv built in; macOS ships it as a separate libiconv.
 ifeq ($(shell uname -s),Darwin)
 LDLIBS   += -liconv
 endif
 
-all: $(BIN) $(CAPI) $(SETTEST) $(CNVTEST) $(SCNTEST)
+all: $(BIN) $(CAPI) $(SETTEST) $(CNVTEST) $(SCNTEST) $(RENDER)
 
 $(BIN): $(LIB) src/png.cpp src/stageinfo.cpp src/*.h
 	@mkdir -p $(dir $@)
@@ -43,6 +44,11 @@ $(CNVTEST): $(LIB) src/daybreak_c.cpp tests/cnv_test.cpp src/*.h
 $(SCNTEST): $(LIB) src/daybreak_c.cpp tests/scenario_test.cpp src/*.h
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -o $@ $(LIB) src/daybreak_c.cpp tests/scenario_test.cpp $(LDLIBS)
+
+# CPU reference renderer (host-only inspection tool, writes a PNG).
+$(RENDER): $(LIB) src/png.cpp tools/render_stage.cpp src/*.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -o $@ $(LIB) src/png.cpp tools/render_stage.cpp $(LDLIBS)
 
 test: $(SETTEST) $(CNVTEST) $(SCNTEST)
 	$(SETTEST) $(dir $(SETTEST))

@@ -11,6 +11,7 @@
 
 #include "../src/archive.h"
 #include "../src/daybreak_c.h"
+#include "../src/geometry.h"
 #include "../src/identify.h"
 #include "../src/stage.h"
 
@@ -178,6 +179,95 @@ std::string mesh(int tris) {
 
 
 // Archive roles come from entry count + a known member; language from scenario scripts.
+// Geometry extraction (src/geometry.h) and the draw recipe, on a hand-written stage.
+void geometry_tests(const std::string& dir) {
+    // Slot 01: one quad (fan -> 2 triangles) with material 1 and one triangle with
+    // material 0; vertex colours on two vertices; UVs; the material list has fewer
+    // indices than faces (the last applies to the rest). Material 1 is additive.
+    const std::string x01 =
+        "xof 0303txt 0032\n"
+        "Mesh quad {\n 5;\n 0;0;0;, 10;0;0;, 10;0;10;, 0;0;10;, 5;5;5;;\n"
+        " 2;\n 4;0,1,2,3;, 3;0,1,4;;\n"
+        " MeshTextureCoords { 5; 0;0;, 1;0;, 1;1;, 0;1;, 0.5;0.5;; }\n"
+        " MeshVertexColors { 2; 0;1.0;0.0;0.0;1.0;, 4;0.0;0.0;1.0;0.5;; }\n"
+        " MeshMaterialList {\n  2;\n  1;\n  1;;\n"
+        "  Material { 0.5;0.5;0.5;1.0;; 0.0; 0;0;0;; 0;0;0;; TextureFilename { \"grass.bmp\"; } }\n"
+        "  Material { 1.0;1.0;1.0;1.0;; 8.0; 0;0;0;; 0;0;0;; }\n"
+        " }\n}\n";
+    const std::string path = dir + "/geo.dat";
+    std::vector<uint8_t> env(84, 0);
+    const int32_t env_ints[21] = {100, 900, 0x10, 0x20, 0x130, -10, -20, 30, 40, 1, 2, 3};
+    for (int i = 0; i < 21; i++)
+        for (int b = 0; b < 4; b++) env[size_t(i * 4 + b)] = uint8_t(uint32_t(env_ints[i]) >> (8 * b));
+    Archive a;
+    std::string err;
+    check(write_archive(path, {{"data/stage07/env.dat", std::string(env.begin(), env.end())},
+                               {"data/stage07/01.x", x01},
+                               {"data/stage07/grass.cnv", "pixels"}},
+                        3) &&
+              a.open(path, &err),
+          "geometry archive opens");
+    const StageGeometry g = load_stage_geometry(a, 7, 0);
+    check(g.errors.empty() && g.batches.size() == 1, "partial material list: every face takes material 1");
+    if (g.batches.size() == 1) {
+        const GBatch& b = g.batches[0];
+        check(b.slot == 1 && b.material == 1 && b.indices.size() == 9, "quad fan + triangle = 3 triangles");
+        check(b.mat.power == 8.0f && b.mat.texture.empty(), "material power read; no texture on material 1");
+        // Fan of 0,1,2,3 is (0,1,2),(0,2,3): original winding kept, vertices compacted.
+        const std::vector<uint32_t> want = {0, 1, 2, 0, 2, 3, 0, 1, 4};
+        check(b.indices == want, "fan triangulation and winding");
+        check(b.positions.size() == 15 && b.positions[3] == 10 && b.positions[14] == 5, "positions");
+        check(b.uvs.size() == 10 && b.uvs[2] == 1 && b.uvs[9] == 0.5f, "uvs");
+        check(b.has_colors && b.colors[0] == 255 && b.colors[1] == 0 && b.colors[16 + 2] == 255 &&
+                  b.colors[16 + 3] == 128 && b.colors[4] == 255,
+              "vertex colours (and white where none is given)");
+    }
+    check(g.env.present && g.env.fog_start == 100 && g.env.fog_end == 900 && g.env.fog_rgb[0] == 0x10 &&
+              g.env.fog_rgb[2] == 0x30 && g.env.params[0] == -10 && g.env.spawn[0][0] == 1 && g.env.spawn[0][2] == 3,
+          "env.dat fields");
+    check(!g.bounds.empty() && g.bounds.hi[0] == 10 && g.bounds.lo[1] == 0, "bounds");
+
+    // Same mesh with an explicit index per face: one batch per material.
+    std::string x2 = x01;
+    x2.replace(x2.find("  1;\n  1;;"), 10, "  2;\n  1,\n  0;;");
+    check(write_archive(path, {{"data/stage07/01.x", x2}, {"data/stage07/grass.cnv", "pixels"}}, 0) &&
+              a.open(path, &err),
+          "second geometry archive opens");
+    const StageGeometry g2 = load_stage_geometry(a, 7, 0);
+    check(g2.batches.size() == 2 && g2.batches[0].material == 0 && g2.batches[0].indices.size() == 3 &&
+              g2.batches[1].indices.size() == 6 && g2.batches[0].mat.tex.found &&
+              g2.batches[0].mat.tex.archive_name == "data/stage07/grass.cnv",
+          "per-face materials split into batches; texture resolved in the stage dir");
+    check(!g2.env.present, "no env.dat");
+
+    // C API over the same archive.
+    const char* p = path.c_str();
+    char cerr[256];
+    DBArchives* arch = db_archives_open(&p, 1, cerr, sizeof cerr);
+    DBStageGeometry* cg = db_geometry_open(arch, 7, 0, cerr, sizeof cerr);
+    DBBatch cb{};
+    check(cg && db_geometry_batch_count(cg) == 2 && db_geometry_triangle_count(cg) == 3 &&
+              db_geometry_batch(cg, 0, &cb) == 1 && cb.vertex_count == 3 && cb.index_count == 3 && cb.texture_found &&
+              std::string(cb.texture, size_t(cb.texture_len)) == "data/stage07/grass.cnv" && cb.slot == 1,
+          "C API geometry batches");
+    db_archives_free(arch);  // geometry outlives the archives
+    check(db_geometry_batch(cg, 1, &cb) == 1 && cb.power == 8.0f && cb.indices[5] == 3, "batch data after archives freed");
+    check(db_geometry_batch(cg, 2, &cb) == 0 && db_geometry_batch(nullptr, 0, &cb) == 0, "C API batch bounds");
+    db_geometry_free(cg);
+    check(db_geometry_open(nullptr, 7, 0, cerr, sizeof cerr) == nullptr, "C API rejects null archives");
+
+    // Draw recipe: slot order as Stage::Draw, sky without fog, multiply layer without Z-write.
+    DBPass ps{};
+    std::string order;
+    for (int i = 0; i < db_stage_pass_count(); i++)
+        if (db_stage_pass(i, &ps)) order += char('0' + ps.slot);
+    check(order == "15436207", "pass order 1 5 4 3 6 2 0 7");
+    check(db_stage_pass(2, &ps) && ps.blend == 1 && !ps.z_write && !ps.fog, "slot 4 multiplies, no Z-write, no fog");
+    check(db_stage_pass(6, &ps) && ps.slot == 0 && !ps.fog, "sky has no fog");
+    check(db_stage_pass(4, &ps) && ps.alpha_test && ps.point_sampling, "slot 6 alpha-tested, point-sampled");
+    check(db_stage_pass(99, &ps) == 0, "pass bounds");
+}
+
 void identify_tests(const std::string& dir) {
     const std::string path = dir + "/ident.dat";
     auto make = [&](size_t count, const Files& fixed) {
@@ -289,6 +379,7 @@ int main(int argc, char** argv) {
 
     validation_tests(argv[1]);
     identify_tests(argv[1]);
+    geometry_tests(argv[1]);
 
     printf("%s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;

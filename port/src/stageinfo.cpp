@@ -15,6 +15,7 @@
 
 #include "archive.h"
 #include "cnv.h"
+#include "geometry.h"
 #include "identify.h"
 #include "png.h"
 #include "stage.h"
@@ -266,6 +267,31 @@ int main(int argc, char** argv) {
     if (arg == "--x" && args.size() >= 3) return run_x(set, args[2]);
     if (arg == "--cnv" && args.size() >= 4) return run_cnv(set, args[2], args[3]);
     if (arg == "--cnv-check") return run_cnv_check(archives, paths);
+    if (arg == "--geometry") {
+        // Every stage: batches from geometry.cpp against the counting reader's triangles.
+        int rc = 0;
+        for (int stage = 1; stage <= 99; ++stage) {
+            for (int variant = 0; variant < 2; ++variant) {
+                StageGeometry g = load_stage_geometry(set, stage, variant);
+                if (g.batches.empty()) continue;
+                StageSummary s = summarize_stage(set, stage);
+                size_t untextured = 0, missing = 0, additive = 0, colored = 0;
+                for (const auto& b : g.batches) {
+                    untextured += b.mat.texture.empty();
+                    missing += !b.mat.texture.empty() && !b.mat.tex.found;
+                    additive += b.mat.power != 0;
+                    colored += b.has_colors;
+                }
+                const bool ok = long(g.triangles()) == s.tris[variant] && g.errors.empty();
+                printf("stage %02d%s: %zu batches, %zu tris (reader %ld) %s | untextured %zu, texture missing %zu, "
+                       "additive %zu, vertex colours %zu | fog %d-%d\n",
+                       stage, variant ? "b" : " ", g.batches.size(), g.triangles(), s.tris[variant], ok ? "ok" : "MISMATCH",
+                       untextured, missing, additive, colored, g.env.fog_start, g.env.fog_end);
+                if (!ok) rc = 1;
+            }
+        }
+        return rc;
+    }
     if (arg == "--stages") {
         std::set<std::string> dirs;
         for (const auto& a : archives)

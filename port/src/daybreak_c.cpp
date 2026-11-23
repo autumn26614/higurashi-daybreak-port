@@ -10,8 +10,14 @@
 
 #include "archive.h"
 #include "cnv.h"
+#include "geometry.h"
+#include "camera.h"
+#include "raster.h"
+#include "recipe.h"
 #include "identify.h"
 #include "scenario.h"
+
+#include <cstdio>
 #include "stage.h"
 
 #include <set>
@@ -25,6 +31,10 @@ struct DBArchives {
     db::ArchiveSet set;
     bool scripts_listed = false;
     std::vector<std::string> scripts;  // filled by db_archives_script_count
+};
+
+struct DBStageGeometry {
+    db::StageGeometry geo;
 };
 
 struct DBScript {
@@ -188,6 +198,131 @@ int32_t db_image_width(const DBImage* img) { return img ? int32_t(img->image.wid
 int32_t db_image_height(const DBImage* img) { return img ? int32_t(img->image.height) : -1; }
 int32_t db_image_bpp(const DBImage* img) { return img ? int32_t(img->image.bpp) : -1; }
 const uint8_t* db_image_rgba(const DBImage* img) { return img ? img->image.rgba.data() : nullptr; }
+
+DBStageGeometry* db_geometry_open(DBArchives* a, int32_t stage, int32_t variant, char* err, int32_t err_len) {
+    if (!a) {
+        set_err(err, err_len, "no archives");
+        return nullptr;
+    }
+    auto* g = new (std::nothrow) DBStageGeometry;
+    if (!g) {
+        set_err(err, err_len, "out of memory");
+        return nullptr;
+    }
+    g->geo = db::load_stage_geometry(a->set, stage, variant);
+    if (g->geo.batches.empty()) {
+        char msg[64];
+        snprintf(msg, sizeof msg, "stage %02d has no meshes", stage);
+        set_err(err, err_len, g->geo.errors.empty() ? std::string(msg) : g->geo.errors.front());
+        delete g;
+        return nullptr;
+    }
+    set_err(err, err_len, "");
+    return g;
+}
+
+void db_geometry_free(DBStageGeometry* g) { delete g; }
+int32_t db_geometry_batch_count(const DBStageGeometry* g) { return g ? int32_t(g->geo.batches.size()) : 0; }
+int64_t db_geometry_triangle_count(const DBStageGeometry* g) { return g ? int64_t(g->geo.triangles()) : 0; }
+int32_t db_geometry_error_count(const DBStageGeometry* g) { return g ? int32_t(g->geo.errors.size()) : 0; }
+
+int32_t db_geometry_batch(const DBStageGeometry* g, int32_t i, DBBatch* out) {
+    if (!g || !out || i < 0 || size_t(i) >= g->geo.batches.size()) return 0;
+    const db::GBatch& b = g->geo.batches[size_t(i)];
+    out->slot = b.slot;
+    out->mesh = b.mesh;
+    out->material = b.material;
+    out->vertex_count = int32_t(b.positions.size() / 3);
+    out->positions = b.positions.data();
+    out->uvs = b.uvs.data();
+    out->colors = b.colors.data();
+    out->has_colors = b.has_colors;
+    out->index_count = int32_t(b.indices.size());
+    out->indices = b.indices.data();
+    for (int k = 0; k < 4; k++) out->diffuse[k] = b.mat.diffuse[k];
+    out->power = b.mat.power;
+    for (int k = 0; k < 3; k++) out->specular[k] = b.mat.specular[k], out->emissive[k] = b.mat.emissive[k];
+    out->texture = b.mat.tex.archive_name.c_str();
+    out->texture_len = int32_t(b.mat.tex.archive_name.size());
+    out->texture_found = b.mat.tex.found;
+    return 1;
+}
+
+int32_t db_geometry_env(const DBStageGeometry* g, DBStageEnv* out) {
+    if (!g || !out) return 0;
+    const db::StageEnv& e = g->geo.env;
+    out->present = e.present;
+    out->fog_start = e.fog_start;
+    out->fog_end = e.fog_end;
+    for (int k = 0; k < 3; k++) out->fog_rgb[k] = e.fog_rgb[k];
+    for (int p = 0; p < 4; p++)
+        for (int k = 0; k < 3; k++) out->spawn[p][k] = e.spawn[p][k];
+    const db::Box& bx = g->geo.bounds;
+    for (int k = 0; k < 3; k++) {
+        out->bounds_min[k] = bx.empty() ? 0.f : float(bx.lo[k]);
+        out->bounds_max[k] = bx.empty() ? 0.f : float(bx.hi[k]);
+    }
+    return 1;
+}
+
+int32_t db_archives_has_stage(DBArchives* a, int32_t stage) {
+    if (!a || stage < 0 || stage > 99) return 0;
+    char name[32];
+    for (int slot = 0; slot < 8; slot++)
+        for (const char* fmt : {"data/stage%02d/%02d.x", "data/stage%02d/%02db.x"}) {
+            snprintf(name, sizeof name, fmt, stage, slot);
+            if (a->set.find(name)) return 1;
+        }
+    return 0;
+}
+
+int32_t db_geometry_default_camera(const DBStageGeometry* g, DBCamera* out) {
+    if (!g || !out) return 0;
+    const db::Camera c = db::default_camera(g->geo);
+    for (int k = 0; k < 3; k++) out->eye[k] = c.eye[k], out->target[k] = c.target[k];
+    out->fov_y = c.fov_y;
+    out->z_near = c.z_near;
+    out->z_far = c.z_far;
+    return 1;
+}
+
+namespace {
+db::Camera to_camera(const DBCamera& c) {
+    db::Camera k;
+    for (int i = 0; i < 3; i++) k.eye[i] = c.eye[i], k.target[i] = c.target[i];
+    k.fov_y = c.fov_y;
+    k.z_near = c.z_near;
+    k.z_far = c.z_far;
+    return k;
+}
+}  // namespace
+
+void db_camera_matrices(const DBCamera* c, float aspect, float view[16], float proj[16]) {
+    if (!c) return;
+    const db::Camera k = to_camera(*c);
+    const db::Mat4f v = db::look_at_lh(k.eye, k.target);
+    const db::Mat4f p = db::perspective_lh(k.fov_y, aspect, k.z_near, k.z_far);
+    if (view) memcpy(view, v.m, sizeof v.m);
+    if (proj) memcpy(proj, p.m, sizeof p.m);
+}
+
+int64_t db_render_reference(DBArchives* a, const DBStageGeometry* g, const DBCamera* c, int32_t width, int32_t height,
+                            uint8_t* rgba) {
+    if (!a || !g || !c || !rgba || width <= 0 || height <= 0 || width > 8192 || height > 8192) return -1;
+    std::vector<uint8_t> out;
+    const long drawn = db::render_reference(a->set, g->geo, to_camera(*c), width, height, out);
+    memcpy(rgba, out.data(), out.size());
+    return drawn;
+}
+
+int32_t db_stage_pass_count(void) { return db::kStagePassCount; }
+
+int32_t db_stage_pass(int32_t i, DBPass* out) {
+    if (!out || i < 0 || i >= db::kStagePassCount) return 0;
+    const db::Pass& p = db::kStagePasses[i];
+    *out = {p.slot, int32_t(p.blend), p.z_write, p.fog, p.alpha_test, p.point_sampling};
+    return 1;
+}
 
 int32_t db_archives_script_count(DBArchives* a) {
     if (!a) return 0;

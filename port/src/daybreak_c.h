@@ -55,6 +55,74 @@ int32_t db_image_bpp(const DBImage* img);    /* 24 or 32 as stored; output is al
 /* width*height*4 bytes, R,G,B,A, top row first, straight (non-premultiplied) alpha. */
 const uint8_t* db_image_rgba(const DBImage* img);
 
+/* ---- Stage geometry (src/geometry.h) ------------------------------------------------
+ * Every visual mesh of one stage as draw batches: one per (slot 0-7, mesh, material).
+ * Positions are Direct3D world coordinates (left-handed, y up); triangles keep the
+ * original winding (front faces clockwise on screen). Pointers stay valid until
+ * db_geometry_free; the DBArchives may be freed earlier. */
+typedef struct DBStageGeometry DBStageGeometry;
+DBStageGeometry* db_geometry_open(DBArchives* a, int32_t stage, int32_t variant, char* err, int32_t err_len);
+void db_geometry_free(DBStageGeometry* g);
+int32_t db_geometry_batch_count(const DBStageGeometry* g);
+int64_t db_geometry_triangle_count(const DBStageGeometry* g);
+int32_t db_geometry_error_count(const DBStageGeometry* g);
+
+typedef struct {
+    int32_t slot, mesh, material;
+    int32_t vertex_count;
+    const float* positions;  /* xyz per vertex */
+    const float* uvs;        /* uv per vertex */
+    const uint8_t* colors;   /* RGBA per vertex (MeshVertexColors, else 255s) */
+    int32_t has_colors;
+    int32_t index_count;
+    const uint32_t* indices; /* triangles */
+    float diffuse[4];        /* material faceColor RGBA */
+    float power;             /* != 0: drawn additively by the game */
+    float specular[3];
+    float emissive[3];
+    const char* texture;     /* raw cp932 archive entry (".cnv"); "" if none */
+    int32_t texture_len;
+    int32_t texture_found;
+} DBBatch;
+int32_t db_geometry_batch(const DBStageGeometry* g, int32_t i, DBBatch* out); /* 1 = ok */
+
+typedef struct {
+    int32_t present;           /* env.dat was found */
+    int32_t fog_start, fog_end;
+    uint8_t fog_rgb[3];
+    float spawn[4][3];         /* players 1-4 */
+    float bounds_min[3], bounds_max[3]; /* all batches except the sky (slot 0) */
+} DBStageEnv;
+int32_t db_geometry_env(const DBStageGeometry* g, DBStageEnv* out);
+
+/* 1 if the set has any visual mesh file for this stage (data/stageNN/00.x .. 07.x). */
+int32_t db_archives_has_stage(DBArchives* a, int32_t stage);
+
+/* Camera (src/camera.h): Direct3D convention, left-handed, y up. */
+typedef struct {
+    float eye[3], target[3];
+    float fov_y, z_near, z_far;
+} DBCamera;
+/* A battle-like starting view over the arena (env.dat), or over the mesh bounds. */
+int32_t db_geometry_default_camera(const DBStageGeometry* g, DBCamera* out);
+/* D3DXMatrixLookAtLH / PerspectiveFovLH, row-major for row vectors (v' = v * M).
+ * Loaded as a column-major float4x4 (Metal, simd) they are the transposes, so
+ * M_metal * v == v * M_d3d: use them as they are with column vectors. */
+void db_camera_matrices(const DBCamera* c, float aspect, float view[16], float proj[16]);
+/* CPU reference render (src/raster.h) into width*height*4 RGBA bytes. Returns the
+ * number of pixels drawn, or -1 on bad arguments. Textures are read from `a`. */
+int64_t db_render_reference(DBArchives* a, const DBStageGeometry* g, const DBCamera* c, int32_t width, int32_t height,
+                            uint8_t* rgba);
+
+/* Draw passes in game order (src/recipe.h). blend: 0 = alpha (SRCALPHA, INVSRCALPHA),
+ * 1 = multiply (DESTCOLOR, ZERO), 2 = additive (SRCALPHA, ONE). A batch whose material
+ * power != 0 is drawn additively with no Z-write and no fog, whatever its pass says. */
+typedef struct {
+    int32_t slot, blend, z_write, fog, alpha_test, point_sampling;
+} DBPass;
+int32_t db_stage_pass_count(void);
+int32_t db_stage_pass(int32_t i, DBPass* out); /* 1 = ok */
+
 /* ---- Scenario scripts (src/scenario.h) ---------------------------------------------
  * Scenario scripts (data/scenario/..., .txt) in the set, deduplicated (first archive wins), sorted
  * case-insensitively. Names are raw cp932; pointers live as long as the DBArchives. */

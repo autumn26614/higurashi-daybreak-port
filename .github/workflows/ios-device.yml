@@ -12,7 +12,9 @@ permissions:
 
 jobs:
   ipa:
-    runs-on: macos-15
+    # Intel runner: it cross-compiles for arm64 devices, and Apple-silicon (macos-15)
+    # jobs have not been getting workers for this repository.
+    runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
