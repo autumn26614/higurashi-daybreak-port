@@ -13,8 +13,8 @@
 // Approximated (marked "approx." in the code): no walls yet, the defender is a capsule (its hurt volume is not
 // decoded), a knocked-out fighter stays down, attack moves without any attack record (shots,
 // throws, specials in the character's own code) use a stand-in hit, every character moves
-// with Rena's attack speeds, and the computer opponent is a simple walker, not the
-// game's AI (vtable +0x14). Not yet: shots, specials, guard, items, effects, sounds.
+// with Rena's attack speeds. The computer player is the game's (0x44CAB0). Not yet: shots,
+// specials, items, effects, sounds.
 #pragma once
 #include <array>
 #include <cstdint>
@@ -58,6 +58,21 @@ struct Floor {
     bool empty() const { return tris.empty(); }
 };
 
+// The game's random numbers are rand(); any 32-bit generator will do (deterministic here).
+struct Rng {
+    uint32_t state = 12345;
+    uint32_t operator()() {
+        state = state * 1103515245u + 12345u;
+        return (state >> 16) & 0x7FFF;
+    }
+};
+
+// Computer player timers (+0x4120 strafe, +0x4124 approach, +0x4128 boost, +0x412C charge).
+struct CpuState {
+    int strafe = 0, approach = 0, boost = 0, charge = 0;
+    int personality = 0;  // +0x308
+};
+
 struct Fighter {
     const CharDef* def = nullptr;
     std::vector<int> anim_frames;  // length of each animation set in frames
@@ -81,6 +96,7 @@ struct Fighter {
     const Character* model = nullptr;  // skeleton for attack spheres, or nullptr
     bool fresh = false;   // the step started this frame: its frame 0 is not skipped
     InputRecord in;
+    CpuState ai;
 
     int anim() const;           // animation set of the current step
     float body_yaw() const;     // radians, for place_character
@@ -96,6 +112,7 @@ struct Battle {
     int frame = 0;
     int winner = -1;  // set when a fighter is knocked out
     Floor floor;      // empty: flat floor at each spawn height
+    Rng rng;          // the computer player's dice
 
     // anim_frames: per character, the frame count of each of its model's animation sets.
     // models: the skeletons for attack spheres (nullptr: spheres in front of the attacker).

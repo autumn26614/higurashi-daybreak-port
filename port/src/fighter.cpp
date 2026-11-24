@@ -721,24 +721,20 @@ void physics(Fighter& f, const Floor& floor) {
     }
 }
 
-// Steps through the animation; a looping animation repeats its step, otherwise the next
-// step starts (the last one holds its final frame).
+// Steps through the animation. The step's frame counter (+0xE6C0) counts frames in the step:
+// a looping animation keeps counting (the pose wraps; states wait on "frame > n" there), a
+// finished one moves to the next step, and the last step holds its final frame.
 void advance(Fighter& f) {
     if (f.fresh) {
         f.fresh = false;
         return;
     }
-    const int len = step_len(f);
-    if (f.frame + 1 < len) {
-        ++f.frame;
-        return;
-    }
     const int a = f.anim();
     const bool loop = f.def && a >= 0 && size_t(a) < f.def->anims.size() && f.def->anims[size_t(a)].loop;
-    if (f.step + 1 < step_count(f) && !loop)
+    if (f.frame + 1 < step_len(f) || loop)
+        ++f.frame;
+    else if (f.step + 1 < step_count(f))
         set_step(f, f.step + 1);
-    else if (loop || f.step + 1 >= step_count(f))
-        f.frame = loop || f.state == 0 || f.state == 10 ? 0 : f.frame;
 }
 
 // Model space -> world, as place_character turns and moves a model.
@@ -852,15 +848,112 @@ void hits(Fighter& a, Fighter& d) {
     if (!set_state(d, react)) set_state(d, 100);
 }
 
-// approx.: a placeholder opponent, not the game's AI.
-Pad cpu_pad(const Fighter& f, const Fighter& o, int frame) {
-    Pad p;
+// The computer player (vtable +0x14, 0x44CAB0): it writes the input record directly, driven by
+// four timers and per-frame dice. personality (+0x308): 0 normal, 1 cautious, 2 aggressive,
+// 5 strong (3 and 4 are team modes, played as 0 here).
+void cpu_input(Fighter& f, const Fighter& o, Rng& rnd) {
+    InputRecord& in = f.in;
+    in.tap = 0;
+    for (size_t i = 0; i < 3; ++i) in.held[i] = in.released[i] = 0;
+    in.x = in.y = 0;
+    float scale = 1.f;
+    uint32_t close_pct = 100, far_pct = 100;
+    switch (f.ai.personality) {
+    case 1:
+        scale = 0.25f;
+        far_pct = 50;
+        close_pct = 200;
+        break;
+    case 2:
+        scale = 2.5f;
+        far_pct = 200;
+        close_pct = 50;
+        break;
+    case 5:
+        scale = 7.f;
+        far_pct = 5;
+        close_pct = 5;
+        break;
+    default:
+        break;
+    }
+    const bool strong = f.ai.personality == 5, cautious = f.ai.personality == 1;
     const float d2 = dist2(f, o);
-    if (d2 > 350.f * 350.f) p.y = -1;
-    if ((frame / 120) % 3 == 1) p.x = (frame / 360) % 2 ? 1 : -1;
-    if (d2 < 280.f * 280.f && frame % 75 < 4) p.buttons |= 2;
-    if (frame % 400 == 200) p.buttons |= 1;
-    return p;
+    // Boost: hold jump for a while (grounded, stamina > 650, not too close).
+    if (f.ground && f.ai.boost == 0 && f.stamina > 650 && d2 > 40000.f && rnd() % 100 == 1)
+        f.ai.boost = int(rnd() % 120 + 10);
+    if (f.ground && f.stamina > 650 && d2 > 250000.f && rnd() % 100 < 10) f.ai.boost = int(rnd() % 120 + 60);
+    // Shot charge: hold the shot button for a while.
+    if (f.ai.charge == 0 && rnd() % 450 == 0) f.ai.charge = int(rnd() % 180 + 180);
+    if (f.ai.charge == 0 && rnd() % 100 == 0) f.ai.charge = int(rnd() % 180);
+    if (f.ai.charge > 0) {
+        --f.ai.charge;
+        in.held[2] = 4;
+    }
+    const uint32_t dash_pct = (strong ? 4u : 1u) * 10u;
+    // Strafe timer: > 0 right, < 0 left, with side dashes.
+    if (f.ai.strafe > 0) {
+        --f.ai.strafe;
+        in.x = 1;
+        if (rnd() % 100 < dash_pct && f.ai.boost < 1) in.tap = 4;
+        if (rnd() % 100 < dash_pct && f.stamina > 500 && f.ai.boost < 1) in.tap = 4;
+    } else if (f.ai.strafe < 0) {
+        ++f.ai.strafe;
+        in.x = -1;
+        if (rnd() % 100 < dash_pct && f.ai.boost < 1) in.tap = 3;
+        if (rnd() % 100 < dash_pct && f.stamina > 500 && f.ai.boost < 1) in.tap = 3;
+    } else if (rnd() % 100 == 0) {
+        f.ai.strafe = int(rnd() % 400) - 200;
+    }
+    // Approach timer: > 0 forward (with forward dashes when far), < 0 back off.
+    if (f.ai.approach > 0) {
+        --f.ai.approach;
+        in.y = -1;
+        if (rnd() % 400 < (strong ? 10u : 1u) && f.ai.boost < 1 && in.tap == 0) in.tap = 1;
+        if (rnd() % 400 < (strong ? 36u : 12u) && f.stamina > 500 && d2 > 640000.f * scale * scale &&
+            f.ai.boost < 1 && in.tap == 0)
+            in.tap = 1;
+    } else if (f.ai.approach < 0) {
+        ++f.ai.approach;
+        in.y = 1;
+        if (rnd() % 400 < (strong ? 3u : 1u) && f.ai.boost < 1 && in.tap == 0) in.tap = 2;
+    } else {
+        f.ai.approach = d2 >= 250000.f * scale * scale ? int(rnd() % 300) - 60 : int(rnd() % 300) - 240;
+    }
+    if (f.ai.boost > 0) {
+        in.held[0] = f.ground ? 3 : 4;
+        --f.ai.boost;
+    }
+    if (f.ground && f.state != 40 && f.state != 41) f.ai.boost = 0;
+    // Close in: melee (neutral, up, side) by distance.
+    if (d2 < 250000.f && rnd() % 100 < close_pct) {
+        auto chance = [&] { return rnd() % 50 == 0 || (cautious && rnd() % 25 == 0); };
+        if (chance()) {
+            in.x = in.y = 0;
+            in.released[1] = 1;
+            return;
+        }
+        if (chance() && d2 < 122500.f) {
+            in.x = 0;
+            in.y = -1;
+            in.released[1] = 1;
+            return;
+        }
+        if (chance() && d2 < 90000.f) {
+            in.y = 0;
+            in.x = 1;
+            in.released[1] = 1;
+            return;
+        }
+    }
+    // Shots in range (+0x80 is the shot range; not decoded, 1500 here).
+    if (rnd() % 100 < far_pct) {
+        const float range = 1500.f;
+        if ((rnd() % 150 == 0 || (f.ai.personality == 2 && rnd() % 125 == 0)) && d2 < range * range) {
+            in.released[2] = 1;
+            f.ai.charge = 0;
+        }
+    }
 }
 
 }  // namespace
@@ -987,8 +1080,10 @@ void Battle::step(const Pad* p1, const Pad* p2) {
     const Pad* pads[2] = {p1, p2};
     for (int i = 0; i < 2; ++i) {
         Fighter& me = f[size_t(i)];
-        const Pad p = pads[i] ? *pads[i] : cpu_pad(me, f[size_t(1 - i)], frame);
-        me.in.update(winner < 0 ? p : Pad{});
+        if (pads[i] || winner >= 0)
+            me.in.update(winner < 0 ? *pads[i] : Pad{});
+        else
+            cpu_input(me, f[size_t(1 - i)], rng);
     }
     for (int i = 0; i < 2; ++i)
         f[size_t(i)].facing = facing_yaw(f[size_t(i)].pos, f[size_t(1 - i)].pos) / kRad;
