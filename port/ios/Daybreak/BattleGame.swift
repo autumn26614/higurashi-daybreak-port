@@ -29,6 +29,13 @@ final class BattleGame {
 
     var fighterCount: Int { Int(db_battle_fighter_count(battle)) }
 
+    /// Whole seconds left on the round timer, nil when there is no limit.
+    var secondsLeft: Int? {
+        let limit = Int(db_battle_time_limit(battle))
+        guard limit > 0 else { return nil }
+        return max(0, (limit - Int(db_battle_frame(battle)) + 59) / 60)
+    }
+
     func team(_ i: Int) -> Int { Int(db_battle_team(battle, Int32(i))) }
 
     /// 1P on `pad`, everyone else computer controlled.

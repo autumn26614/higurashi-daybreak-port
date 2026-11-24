@@ -36,6 +36,7 @@ struct BattleView: View {
     @State private var fighters: [CharacterModel] = []
     @State private var game: BattleGame?
     @State private var hud: [DBFighterState] = []
+    @State private var secondsLeft: Int?
     @State private var winner: Int?
     @State private var koFrames = 0  // frames since the knock-out (the game waits 180)
     @State private var renderer: StageRenderer?
@@ -74,7 +75,7 @@ struct BattleView: View {
                     }
                 }
                 if fight, game != nil {
-                    BattleHUD(states: hud, names: fighters.map { label(Array($0.name.utf8)) })
+                    BattleHUD(states: hud, names: fighters.map { label(Array($0.name.utf8)) }, secondsLeft: secondsLeft)
                     TouchControls(controls: controls)
                     if let winner, koFrames >= 180 {
                         VStack(spacing: 12) {
@@ -320,6 +321,7 @@ struct BattleView: View {
             game.step(pad: controls.pad())  // after the knock-out the fighters still move
             sounds?.play(game.takeSounds())
             let states = (0..<game.fighterCount).map { game.fighter($0) }
+            secondsLeft = game.secondsLeft
             hud = states
             if winner == nil, let w = game.winner { winner = w }
             if let w = winner {
@@ -377,12 +379,18 @@ struct BattleMetalView: UIViewRepresentable {
 struct BattleHUD: View {
     let states: [DBFighterState]
     let names: [String]
+    var secondsLeft: Int? = nil
 
     var body: some View {
         VStack {
             HStack(alignment: .top, spacing: 24) {
                 // 1 vs 1: 1P left, 2P right; 2 vs 2: 1P and 2P left, 3P and 4P right.
                 ForEach(0..<2, id: \.self) { side in
+                    if side == 1, let secondsLeft {
+                        Text("\(secondsLeft)")
+                            .font(.title2.monospacedDigit().bold()).foregroundStyle(.white)
+                            .accessibilityIdentifier("battleTimer")
+                    }
                     VStack(alignment: side == 0 ? .leading : .trailing, spacing: 6) {
                         ForEach(Array(states.enumerated()).filter { sideOf($0.offset) == side }, id: \.offset) { i, s in
                             gauge(i, s, leading: side == 0)
