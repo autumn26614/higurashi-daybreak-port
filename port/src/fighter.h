@@ -11,9 +11,9 @@
 // sit on the animated bone when the character model is given.
 // The floor follows the stage's collision model (slopes, ledges) when one is given.
 // Approximated (marked "approx." in the code): no walls yet, the defender is a capsule (its hurt volume is not
-// decoded), a knocked-out fighter stays down, attacks whose hits come from attack objects
-// (most characters except Rena, Keiichi, Akane, Rika) use a stand-in hit, every character
-// moves with Rena's attack speeds, and the computer opponent is a simple walker, not the
+// decoded), a knocked-out fighter stays down, attack moves without any attack record (shots,
+// throws, specials in the character's own code) use a stand-in hit, every character moves
+// with Rena's attack speeds, and the computer opponent is a simple walker, not the
 // game's AI (vtable +0x14). Not yet: shots, specials, guard, items, effects, sounds.
 #pragma once
 #include <array>

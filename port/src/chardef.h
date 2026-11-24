@@ -12,8 +12,9 @@
 // A move is the state of the same number (0 idle, 10 walk, 20-27 dashes, 30 air dash, 40-44
 // jump, 100+ hit reactions, 300+ attacks). Moves are chained by rank: a move can interrupt the
 // current one when current.cancel <= next.rank and the current frame record is cancellable.
-// A frame record applies from its `from` frame to the next record's; with `hit` set it is an
-// attack sphere of `radius` on `bone` (offset pos, swept along size) and params hold its damage.
+// A frame record applies from its `from` frame to the next record's; with a radius and damage
+// it is an attack sphere of `radius` on `bone` (offset pos, swept along size), params hold
+// its damage, reactions, knock-back and hit-stop.
 #pragma once
 #include <array>
 #include <cstdint>
@@ -30,11 +31,13 @@ struct FrameRecord {
     std::array<uint8_t, 80> params{};
     int32_t flags = 0;  // 0x100 cancellable, 0x200 airborne
     int32_t f16 = 0;
-    int32_t hit = 0;  // 1: attack active
+    int32_t hit = 0;  // meaning unknown (1 on some attack records)
     std::array<int32_t, 3> size{};
 
     int32_t param(int offset) const;  // u32 at params[offset] (0 if out of range)
     int32_t damage() const { return param(0); }
+    // An attack sphere is active from this record's frame to the next record's.
+    bool attacks() const { return radius > 0 && damage() > 0; }
 };
 
 struct MoveStep {

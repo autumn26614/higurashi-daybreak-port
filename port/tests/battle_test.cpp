@@ -86,7 +86,7 @@ std::vector<uint8_t> build(const std::vector<MoveSpec>& moves, int nanims, const
                 w.b.insert(w.b.end(), params, params + 80);
                 w.i32(r.flags);
                 w.i32(0);
-                w.i32(r.hit);
+                w.i32(0);
                 w.i32(0);
                 w.i32(r.hit ? 100 : 0);
                 w.i32(0);
@@ -156,8 +156,8 @@ int main() {
     check(def.moves.size() == moves().size() && def.anims.size() == 12, "counts");
     const Move* m300 = def.move(300);
     check(m300 && m300->rank == 10 && m300->cancel == 20 && m300->steps.size() == 3, "move 300");
-    check(m300 && m300->steps[2].frames[1].hit == 1 && m300->steps[2].frames[1].damage() == 1500 &&
-              m300->steps[2].frames[1].bone == "Bip01_Prop1",
+    check(m300 && m300->steps[2].frames[1].attacks() && !m300->steps[2].frames[0].attacks() &&
+              m300->steps[2].frames[1].damage() == 1500 && m300->steps[2].frames[1].bone == "Bip01_Prop1",
           "attack record");
     check(def.anims[0].loop == 1 && def.anims[2].loop == 0 && def.anims[0].events.size() == 1 &&
               def.anims[0].events[0].swap == "eye2.bmp" && def.anims[0].events[0].period == 60,

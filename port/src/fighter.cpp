@@ -747,17 +747,15 @@ bool touches(const Fighter& d, const float p[3], float radius) {
 bool has_hit_record(const Move& m) {
     for (const MoveStep& st : m.steps)
         for (const FrameRecord& r : st.frames)
-            if (r.hit == 1) return true;
+            if (r.attacks()) return true;
     return false;
 }
 
-// approx.: most characters' attacks hit through attack objects their own class code spawns
-// (0x4256D0), not through the definition's records; until those are decoded, an attack move
-// without any hit record hits in the first half of its last step with these values.
+// approx.: an attack move with no attack record at all (its hits come from the character's
+// own code: shots, throws, specials) hits in the first half of its last step with these.
 const FrameRecord& stand_in_hit() {
     static const FrameRecord r = [] {
         FrameRecord f;
-        f.hit = 1;
         f.radius = 30;
         const int32_t vals[][2] = {{0, 1500}, {36, 6}, {40, 6}, {52, 100}, {56, 113}, {68, 500}, {72, 1000}};
         for (const auto& v : vals) std::memcpy(f.params.data() + v[0], &v[1], 4);
@@ -772,7 +770,7 @@ void hits(Fighter& a, Fighter& d) {
     if (!m) return;
     const FrameRecord* rec = a.record();
     int serial;
-    if (rec && rec->hit == 1) {
+    if (rec && rec->attacks()) {
         serial = a.state * 10000 + a.step * 100 + int(rec - m->steps[size_t(a.step)].frames.data());
     } else {
         const int len = step_len(a);
