@@ -33,7 +33,8 @@ struct FrameRecord {
     int32_t hit = 0;  // 1: attack active
     std::array<int32_t, 3> size{};
 
-    int32_t damage() const;  // params[0..3]
+    int32_t param(int offset) const;  // u32 at params[offset] (0 if out of range)
+    int32_t damage() const { return param(0); }
 };
 
 struct MoveStep {

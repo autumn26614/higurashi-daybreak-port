@@ -5,18 +5,26 @@
 // Reproduced: input record (held-frame counts, release lengths, double taps), the move table
 // from the character definition (steps, ranks, cancel levels, cancellable frames), idle, walk,
 // the four ground dashes, air dash, jump (hold to float), fall, landing, the melee chain and
-// the dash / air attacks with the game's speeds, stamina, HP and the HP drain bar.
+// the dash / air attacks with the game's speeds, stamina, HP and the HP drain bar; hits with
+// the attack record's damage, hit-stop, knock-back and reaction state (ground / air), and the
+// common reaction states of 0x42F1C0 (stagger, launch, down, get up, roll). Attack spheres
+// sit on the animated bone when the character model is given.
 // Approximated (marked "approx." in the code): the floor is the spawn height (the game ray
-// casts the stage's collision frames), attack spheres are placed in front of the attacker
-// instead of on the animated bone, hit reactions use move 100 and knock-down 128, and the
-// computer opponent is a simple walker, not the game's AI (vtable +0x14). Not yet: shots,
-// specials, guard, items, effects, sounds.
+// casts the stage's collision frames), the defender is a capsule (its hurt volume is not
+// decoded), a knocked-out fighter stays down, attacks whose hits come from attack objects
+// (most characters except Rena, Keiichi, Akane, Rika) use a stand-in hit, every character
+// moves with Rena's attack speeds, and the computer opponent is a simple walker, not the
+// game's AI (vtable +0x14). Not yet: shots, specials, guard, items, effects, sounds.
 #pragma once
 #include <array>
 #include <cstdint>
 #include <vector>
 
 #include "chardef.h"
+
+namespace db {
+struct Character;
+}
 
 namespace db::battle {
 
@@ -58,6 +66,9 @@ struct Fighter {
     int state = 0, step = 0, frame = 0;
     int hp = 10000, hp_bar = 10000, stamina = 1000;
     int hit_serial = -1;  // the attack record that already hit (once per record)
+    int freeze = 0;       // hit-stop frames left
+    float knock[2]{};     // +0x4134 / +0x4138: knock-back of the last hit (x100)
+    const Character* model = nullptr;  // skeleton for attack spheres, or nullptr
     bool fresh = false;   // the step started this frame: its frame 0 is not skipped
     InputRecord in;
 
@@ -72,8 +83,10 @@ struct Battle {
     int winner = -1;  // set when a fighter is knocked out
 
     // anim_frames: per character, the frame count of each of its model's animation sets.
+    // models: the skeletons for attack spheres (nullptr: spheres in front of the attacker).
     void start(const CharDef* a, std::vector<int> frames_a, const float spawn_a[3], const CharDef* b,
-               std::vector<int> frames_b, const float spawn_b[3]);
+               std::vector<int> frames_b, const float spawn_b[3], const Character* model_a = nullptr,
+               const Character* model_b = nullptr);
     // pads[i] == nullptr: that fighter is computer controlled.
     void step(const Pad* p1, const Pad* p2);
 };

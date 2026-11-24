@@ -50,7 +50,8 @@ struct CharacterView: View {
                     Picker("Animation", selection: $anim) {
                         Text("Bind pose").tag(-1)
                         ForEach(Array(model.animations.enumerated()), id: \.offset) { i, a in
-                            Text("\(a.name) (\(String(format: "%.1f", a.seconds)) s)").tag(i)
+                            // The game's animation number (D3DX order), then the name in the file.
+                            Text("\(i): \(a.name) (\(String(format: "%.1f", a.seconds)) s)").tag(i)
                         }
                     }
                     .accessibilityIdentifier("animPicker")

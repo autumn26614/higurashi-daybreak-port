@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
+#include "character.h"
 #include "geometry.h"
 
 namespace db::battle {
@@ -98,6 +100,218 @@ float dist2(const Fighter& a, const Fighter& b) {
 int dir_index(int x, int y) {
     static const int table[3][3] = {{2, 4, 7}, {0, 10, 6}, {1, 3, 5}};  // [x+1][y+1], as state 10
     return table[(x > 0) - (x < 0) + 1][(y > 0) - (y < 0) + 1];
+}
+
+void ease0(float& v, float step) {
+    if (v > 0)
+        v = std::max(0.f, v - step);
+    else if (v < 0)
+        v = std::min(0.f, v + step);
+}
+
+void to_air_hit(Fighter& f) {
+    f.vy = 0;
+    set_state(f, 103);
+}
+
+// The common reaction states (0x42F1C0): staggers, launches, lying down, getting up.
+// Knock-back comes from the hit: speed = -knock[0] / 100 (away from the attacker, whom the
+// fighter faces), vy = knock[1] / 100.
+void reaction(Fighter& f) {
+    const int s = f.state, st = f.step, fr = f.frame;
+    const bool first = st == 0 && fr == 0;
+    const bool landed = f.ground && f.vy < 0;
+    switch (s) {
+    case 100:
+    case 101:
+    case 102:
+    case 130:
+    case 131:
+    case 134:
+        if (done(f)) {
+            set_state(f, s == 134 ? 120 : 0);
+            return;
+        }
+        if (!f.ground) {
+            if (s == 134) f.gravity = 0.5f;
+            return to_air_hit(f);
+        }
+        if (fr == 0) {
+            f.extra = 0;
+            f.turn_rate = 0;
+            f.speed = s <= 101 ? -15.f : (s == 102 || s == 134) ? -20.f : 0.f;
+        }
+        f.speed = std::min(0.f, f.speed + (s <= 101 ? 1.5f : (s == 102 || s == 134) ? 0.5f : 1.f));
+        return;
+    case 103:
+        if (first) f.vy = 0;
+        if (f.speed > 5) f.speed = std::max(5.f, f.speed - 0.25f);
+        if (f.speed < -5) f.speed = std::min(-5.f, f.speed + 0.25f);
+        f.gravity = 0.3f;
+        f.vy -= f.gravity;
+        if (f.ground && f.vy < 0) {
+            f.vy = 0;
+            set_state(f, 118);
+        }
+        return;
+    case 104:
+        if (done(f)) {
+            set_state(f, 0);
+            return;
+        }
+        if (!f.ground && st > 0) return to_air_hit(f);
+        if (first) {
+            f.extra = 0;
+            f.speed = 0;
+        }
+        if (st == 0 && fr > 60) {
+            set_step(f, 1);
+            f.speed = -15;
+            return;
+        }
+        f.speed = std::min(0.f, f.speed + 1.5f);
+        return;
+    case 105:
+        if (first) {
+            f.extra = 0;
+            f.speed = 0;
+            f.vy = 0;
+        }
+        if (st == 0 && fr > 60) {
+            set_step(f, 1);
+            f.speed = -f.knock[0] * 0.01f;
+            f.vy = f.knock[1] * 0.01f;
+            f.gravity = 0.3f;
+            return;
+        }
+        if (landed && st > 0) {
+            f.vy = 0;
+            set_state(f, 118);
+            return;
+        }
+        if (st > 0) f.vy -= f.gravity;
+        if (f.speed < -4) f.speed += 0.25f;
+        return;
+    case 113:
+    case 114:
+    case 115:
+    case 116:
+        if (first) {
+            f.extra = 0;
+            f.turn_rate = 0;
+            f.speed = -f.knock[0] * 0.01f;
+            f.vy = f.knock[1] * 0.01f;
+            f.gravity = s == 116 ? 1.f : 0.3f;
+        }
+        if (landed) {
+            f.vy = 0;
+            set_state(f, 118);
+            return;
+        }
+        if (f.vy < 6 && st == 1 && (s != 115 || fr % 17 == 0)) {
+            set_step(f, 2);
+            return;
+        }
+        f.vy -= f.gravity;
+        if (f.speed < -4) f.speed += 0.25f;
+        return;
+    case 118:
+    case 119:
+    case 121:
+        if (done(f)) {
+            if (f.hp > 0) set_state(f, 120);  // approx.: knocked out stays down
+            return;
+        }
+        if (!f.ground) return to_air_hit(f);
+        if (s == 121 && fr == 0) f.speed = -f.knock[0] * 0.01f;
+        ease0(f.speed, 0.25f);
+        return;
+    case 120:
+        if (done(f)) {
+            set_state(f, f.in.x == 0 && f.in.y == 0 ? 128 : 124);
+            return;
+        }
+        if (!f.ground) return to_air_hit(f);
+        ease0(f.speed, 0.25f);
+        return;
+    case 124:
+        if (done(f)) {
+            set_state(f, 0);
+            return;
+        }
+        if (!f.ground) return to_fall(f);
+        regen(f);
+        if (st == 0) {
+            f.scratch = 0;
+            f.extra = 0;
+            f.turn_rate = 180;
+            walk_heading(f);
+        }
+        if (st == 1) {
+            f.turn_rate = 3;
+            walk_heading(f);
+            f.speed = 10;
+            ++f.scratch;
+            if (f.scratch > 150 || (f.scratch > 30 && (f.in.held[0] || f.in.held[1] || f.in.held[2]))) {
+                set_step(f, 2);
+                return;
+            }
+        }
+        if (st == 2) {
+            f.speed = 0;
+            f.turn_rate = 6;
+        }
+        return;
+    case 128:
+        if (done(f)) {
+            set_state(f, 0);
+            return;
+        }
+        if (!f.ground) {
+            f.vy = 0;
+            return to_fall(f);
+        }
+        f.speed = 0;
+        return;
+    case 133:
+        if (first) {
+            f.extra = 0;
+            f.speed = -f.knock[0] * 0.01f;
+            f.vy = f.knock[1] * 0.01f;
+            f.gravity = 0.3f;
+            f.scratch = 0;
+        }
+        if (landed) {
+            f.vy = 0;
+            f.speed *= 0.5f;
+            set_state(f, 118);
+            return;
+        }
+        if (st == 1) {
+            f.vy -= 0.3f;
+            if (++f.scratch == 68) {
+                set_step(f, 2);
+                f.scratch = 0;
+                return;
+            }
+        }
+        if (st == 2) {
+            f.vy -= 0.3f;
+            if (f.speed < -4) f.speed += 0.25f;
+        }
+        return;
+    default:  // reactions not decoded yet (guard 191+, throws)
+        if (done(f)) {
+            if (f.ground)
+                set_state(f, 0);
+            else
+                to_fall(f);
+            return;
+        }
+        ease0(f.speed, 0.5f);
+        if (!f.ground) f.vy -= 0.5f;
+        return;
+    }
 }
 
 // Per-state update (0x443EE0). Returns after a state change, like the game.
@@ -283,21 +497,10 @@ void update_state(Fighter& f, const Fighter& o) {
         f.speed = 0;
         regen(f);
         return;
-    case 100:  // approx.: hit reaction
-        f.speed = std::max(0.f, f.speed - 0.5f);
-        if (!f.ground) f.vy -= 0.5f;
-        if (done(f) && f.ground) {
-            f.extra = 0;
-            set_state(f, 0);
-        }
-        return;
-    case 128:  // approx.: knocked out, stays down
-        f.speed = std::max(0.f, f.speed - 0.5f);
-        if (!f.ground) f.vy -= 0.5f;
-        return;
     default:
         break;
     }
+    if (s >= 100 && s < 300) return reaction(f);
     // Attacks (300 and up); speeds from the Rena class, used for every character for now.
     const bool air = s == 320 || s == 332;
     if (done(f)) {
@@ -489,31 +692,104 @@ void advance(Fighter& f) {
         f.frame = loop || f.state == 0 || f.state == 10 ? 0 : f.frame;
 }
 
-// approx.: the attack sphere sits in front of the attacker at chest height instead of on the
-// animated bone; the defender is a vertical capsule.
-void hits(Fighter& a, Fighter& d, int index_of_a) {
-    (void)index_of_a;
-    const FrameRecord* rec = a.record();
-    if (!rec || rec->hit != 1 || d.state == 128) return;
+// Model space -> world, as place_character turns and moves a model.
+void to_world(const Fighter& f, const float m[3], float out[3]) {
+    const float yaw = f.body_yaw(), c = std::cos(yaw), s = std::sin(yaw);
+    out[0] = m[0] * c + m[2] * s + f.pos[0];
+    out[1] = m[1] + f.pos[1];
+    out[2] = -m[0] * s + m[2] * c + f.pos[2];
+}
+
+// The attack sphere of a record: on its bone (offset pos, swept along size) when the model
+// is known; approx. otherwise: in front of the attacker at chest height.
+int sphere_points(const Fighter& a, const FrameRecord& rec, float pts[3][3]) {
+    if (a.model && !rec.bone.empty()) {
+        const float p0[3] = {float(rec.pos[0]), float(rec.pos[1]), float(rec.pos[2])};
+        const float p1[3] = {p0[0] + float(rec.size[0]), p0[1] + float(rec.size[1]), p0[2] + float(rec.size[2])};
+        float m0[3], m1[3];
+        const double t = a.frame * kFrameSeconds;
+        if (bone_point(*a.model, a.anim(), t, rec.bone, p0, m0) && bone_point(*a.model, a.anim(), t, rec.bone, p1, m1)) {
+            const float mid[3] = {(m0[0] + m1[0]) / 2, (m0[1] + m1[1]) / 2, (m0[2] + m1[2]) / 2};
+            to_world(a, m0, pts[0]);
+            to_world(a, mid, pts[1]);
+            to_world(a, m1, pts[2]);
+            return 3;
+        }
+    }
+    const float yaw = a.body_yaw(), reach = 50.f + float(rec.radius) + float(rec.size[1]) * 0.5f;
+    pts[0][0] = a.pos[0] - std::sin(yaw) * reach;
+    pts[0][1] = a.pos[1] + 90.f;
+    pts[0][2] = a.pos[2] - std::cos(yaw) * reach;
+    return 1;
+}
+
+// approx.: the defender is a vertical capsule (radius 40, 0..170 above its feet); its own hurt
+// volume is not decoded. Lying down and getting up (118-128) cannot be hit.
+bool touches(const Fighter& d, const float p[3], float radius) {
+    const float dx = p[0] - d.pos[0], dz = p[2] - d.pos[2];
+    const float y = p[1] - d.pos[1];
+    const float dy = y < 0 ? -y : y > 170.f ? y - 170.f : 0.f;
+    const float r = radius + 40.f;
+    return dx * dx + dz * dz + dy * dy <= r * r;
+}
+
+bool has_hit_record(const Move& m) {
+    for (const MoveStep& st : m.steps)
+        for (const FrameRecord& r : st.frames)
+            if (r.hit == 1) return true;
+    return false;
+}
+
+// approx.: most characters' attacks hit through attack objects their own class code spawns
+// (0x4256D0), not through the definition's records; until those are decoded, an attack move
+// without any hit record hits in the first half of its last step with these values.
+const FrameRecord& stand_in_hit() {
+    static const FrameRecord r = [] {
+        FrameRecord f;
+        f.hit = 1;
+        f.radius = 30;
+        const int32_t vals[][2] = {{0, 1500}, {36, 6}, {40, 6}, {52, 100}, {56, 113}, {68, 500}, {72, 1000}};
+        for (const auto& v : vals) std::memcpy(f.params.data() + v[0], &v[1], 4);
+        return f;
+    }();
+    return r;
+}
+
+void hits(Fighter& a, Fighter& d) {
+    if (d.state >= 118 && d.state <= 128) return;
     const Move* m = move_of(a, a.state);
-    const int serial = a.state * 10000 + a.step * 100 + int(rec - m->steps[size_t(a.step)].frames.data());
+    if (!m) return;
+    const FrameRecord* rec = a.record();
+    int serial;
+    if (rec && rec->hit == 1) {
+        serial = a.state * 10000 + a.step * 100 + int(rec - m->steps[size_t(a.step)].frames.data());
+    } else {
+        const int len = step_len(a);
+        if (a.state < 300 || a.step != int(m->steps.size()) - 1 || a.frame < len / 4 || a.frame > len / 2 ||
+            has_hit_record(*m))
+            return;
+        rec = &stand_in_hit();
+        serial = a.state * 10000 + a.step * 100 + 99;
+    }
     if (serial == a.hit_serial) return;
-    const float yaw = a.body_yaw();
-    const float reach = 50.f + float(rec->radius) + float(rec->size[1]) * 0.5f;
-    const float cx = a.pos[0] - std::sin(yaw) * reach, cz = a.pos[2] - std::cos(yaw) * reach;
-    const float cy = a.pos[1] + 90.f;
-    const float dx = d.pos[0] - cx, dz = d.pos[2] - cz;
-    const float dy = std::max(0.f, std::fabs(d.pos[1] + 90.f - cy) - 60.f);
-    const float r = float(rec->radius) + 45.f;
-    if (dx * dx + dz * dz + dy * dy > r * r) return;
+    float pts[3][3];
+    const int n = sphere_points(a, *rec, pts);
+    bool hit = false;
+    for (int i = 0; i < n && !hit; ++i) hit = touches(d, pts[i], float(rec->radius));
+    if (!hit) return;
     a.hit_serial = serial;
     d.hp = std::max(0, d.hp - std::max(0, rec->damage()));
-    const bool ko = d.hp == 0;
-    if (!set_state(d, ko ? 128 : 100)) set_state(d, 100);
-    d.heading = 0;
-    d.extra = 180;  // pushed away from the attacker (the defender faces it)
-    d.speed = ko ? 10.f : 6.f;
-    if (!d.ground) d.vy = std::max(d.vy, 3.f);
+    // The record names the reaction on the ground (params 52) and in the air (56), the
+    // knock-back (68 / 72, x100) and the hit-stop of attacker and defender (36 / 40).
+    d.knock[0] = float(rec->param(68));
+    d.knock[1] = float(rec->param(72));
+    int react = d.ground && d.hp > 0 ? rec->param(52) : rec->param(56);
+    if (!move_of(d, react)) react = d.ground && d.hp > 0 ? 100 : 113;
+    d.heading = 0;  // approx.: square up to the attacker
+    d.extra = 0;
+    if (!set_state(d, react)) set_state(d, 100);
+    a.freeze = std::clamp(rec->param(36), 0, 30);
+    d.freeze = std::clamp(rec->param(40), 0, 30);
 }
 
 // approx.: a placeholder opponent, not the game's AI.
@@ -571,14 +847,17 @@ const FrameRecord* Fighter::record() const {
 }
 
 void Battle::start(const CharDef* a, std::vector<int> frames_a, const float spawn_a[3], const CharDef* b,
-                   std::vector<int> frames_b, const float spawn_b[3]) {
+                   std::vector<int> frames_b, const float spawn_b[3], const Character* model_a,
+                   const Character* model_b) {
     *this = Battle{};
+    const Character* models[2] = {model_a, model_b};
     const CharDef* defs[2] = {a, b};
     std::vector<int>* frames[2] = {&frames_a, &frames_b};
     const float* spawns[2] = {spawn_a, spawn_b};
     for (int i = 0; i < 2; ++i) {
         Fighter& f = this->f[size_t(i)];
         f.def = defs[i];
+        f.model = models[i];
         f.anim_frames = std::move(*frames[i]);
         for (int k = 0; k < 3; ++k) f.pos[k] = spawns[i][k];
         f.floor = spawns[i][1];
@@ -597,10 +876,15 @@ void Battle::step(const Pad* p1, const Pad* p2) {
     }
     for (int i = 0; i < 2; ++i)
         f[size_t(i)].facing = facing_yaw(f[size_t(i)].pos, f[size_t(1 - i)].pos) / kRad;
+    // Hit-stop: a frozen fighter skips its update, movement and animation.
+    bool frozen[2];
+    for (int i = 0; i < 2; ++i) frozen[i] = f[size_t(i)].freeze > 0;
     for (int i = 0; i < 2; ++i)
-        if (winner < 0 && f[size_t(i)].state != 128) commands(f[size_t(i)]);
-    for (int i = 0; i < 2; ++i) update_state(f[size_t(i)], f[size_t(1 - i)]);
-    for (int i = 0; i < 2; ++i) physics(f[size_t(i)]);
+        if (winner < 0 && !frozen[i]) commands(f[size_t(i)]);
+    for (int i = 0; i < 2; ++i)
+        if (!frozen[i]) update_state(f[size_t(i)], f[size_t(1 - i)]);
+    for (int i = 0; i < 2; ++i)
+        if (!frozen[i]) physics(f[size_t(i)]);
     // Keep the two bodies apart.
     const float dx = f[1].pos[0] - f[0].pos[0], dz = f[1].pos[2] - f[0].pos[2];
     const float d = std::sqrt(dx * dx + dz * dz), min_d = 70.f;
@@ -612,12 +896,15 @@ void Battle::step(const Pad* p1, const Pad* p2) {
         f[1].pos[2] += uz * push;
     }
     if (winner < 0) {
-        hits(f[0], f[1], 0);
-        hits(f[1], f[0], 1);
+        hits(f[0], f[1]);
+        hits(f[1], f[0]);
     }
     for (int i = 0; i < 2; ++i) {
         Fighter& me = f[size_t(i)];
-        advance(me);
+        if (frozen[i])
+            --me.freeze;
+        else
+            advance(me);
         // HP drain bar (0x422F60): follows HP down at 200 per frame.
         if (me.hp < me.hp_bar) me.hp_bar = std::max(me.hp, me.hp_bar - 200);
         if (me.hp == 0 && winner < 0) winner = 1 - i;

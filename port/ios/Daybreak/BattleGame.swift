@@ -6,6 +6,7 @@ import simd
 /// `step` is one game frame.
 final class BattleGame {
     private let battle: OpaquePointer
+    private let models: [CharacterModel]  // the battle reads their skeletons: keep them alive
 
     init(_ a: CharacterModel, _ b: CharacterModel, spawns: [SIMD3<Float>]) throws {
         guard spawns.count >= 2 else { throw ReportError.open("The stage has no 1P / 2P spawn points") }
@@ -13,6 +14,7 @@ final class BattleGame {
         var err = [CChar](repeating: 0, count: 256)
         guard let p = a.openBattle(with: b, &s1, &s2, &err) else { throw ReportError.open(message(err)) }
         battle = p
+        models = [a, b]
     }
 
     deinit { db_battle_free(battle) }

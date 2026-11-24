@@ -13,7 +13,7 @@ struct BattleView: View {
     @State private var stage = 1
     @State private var p1 = 0
     @State private var p2 = 1
-    @State private var anim = 2
+    @State private var anim = 0  // the game's numbering: 0 is the idle stance
     @State private var fight = true
     @State private var scene: StageScene?
     @State private var fighters: [CharacterModel] = []
@@ -94,7 +94,7 @@ struct BattleView: View {
         if fight, hud.count == 2 {
             return "\(stage) · 1P state \(hud[0].state) · 2P state \(hud[1].state)"
         }
-        return "\(stage) · \(fighters.count) characters · Anim-\(anim + 1)"
+        return "\(stage) · \(fighters.count) characters · animation \(anim)"
     }
 
     private var controlsBar: some View {
@@ -113,7 +113,7 @@ struct BattleView: View {
                 if !fight {
                     Picker("Animation", selection: $anim) {
                         ForEach(0..<min(fighters.map { $0.animations.count }.min() ?? 0, 200), id: \.self) {
-                            Text("Anim-\($0 + 1)").tag($0)
+                            Text("Animation \($0)").tag($0)
                         }
                     }
                     .accessibilityIdentifier("battleAnim")

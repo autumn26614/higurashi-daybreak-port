@@ -1,6 +1,7 @@
 #include "character.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <iterator>
 #include <map>
@@ -307,6 +308,11 @@ bool load_character(const Source& a, const std::string& path, Character& c, std:
         }
         if (r.type == "AnimationSet") l.anim_set(r);
     }
+    // D3DXLoadMeshHierarchyFromX registers animation sets so that GetAnimationSet(0) is the
+    // last set in the file; the game's animation numbers (character definitions) use that
+    // order. Checked by rendering: in file order Rena's "idle" (0) spins head over heels, in
+    // this order it is her standing pose and 74 is her swing.
+    std::reverse(c.anims.begin(), c.anims.end());
     if (c.meshes.empty()) {
         if (err) *err = "no meshes in " + path;
         return false;
@@ -433,6 +439,43 @@ StageGeometry pose_character(const Character& c, int anim, double seconds) {
             g.bounds.add(p);
         }
     return g;
+}
+
+}  // namespace db
+
+namespace db {
+
+bool bone_point(const Character& c, int anim, double seconds, const std::string& bone, const float local[3],
+                float out[3]) {
+    int node = -1;
+    for (size_t i = 0; i < c.nodes.size() && node < 0; i++) {
+        const std::string& n = c.nodes[i].name;
+        if (n.size() != bone.size()) continue;
+        bool same = true;
+        for (size_t k = 0; k < n.size() && same; k++)
+            same = std::tolower(static_cast<unsigned char>(n[k])) == std::tolower(static_cast<unsigned char>(bone[k]));
+        if (same) node = int(i);
+    }
+    if (node < 0) return false;
+    // Only the chain from the root to the bone is needed.
+    std::vector<int> chain;
+    for (int n = node; n >= 0; n = c.nodes[size_t(n)].parent) chain.push_back(n);
+    const CharAnim* an = anim >= 0 && size_t(anim) < c.anims.size() ? &c.anims[size_t(anim)] : nullptr;
+    double tick = seconds * c.ticks_per_second;
+    if (an && an->ticks > 0) tick = std::fmod(tick, an->ticks + 80);
+    if (tick < 0) tick = 0;
+    M world = ident();
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        M local_m = c.nodes[size_t(*it)].bind;
+        if (an)
+            for (const auto& t : an->tracks)
+                if (t.node == *it) local_m = sample(t, tick);
+        world = mul(local_m, world);
+    }
+    for (int k = 0; k < 3; k++)
+        out[k] = float(local[0] * world[size_t(k)] + local[1] * world[size_t(4 + k)] + local[2] * world[size_t(8 + k)] +
+                       world[size_t(12 + k)]);
+    return true;
 }
 
 }  // namespace db

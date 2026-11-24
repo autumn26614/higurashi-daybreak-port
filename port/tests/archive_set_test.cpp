@@ -201,7 +201,10 @@ void character_audio_tests(const std::string& dir) {
         " }\n}\n"
         "AnimationSet walk {\n Animation { {b}\n  AnimationKey { 4; 2;\n"
         "   0; 16; 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1;;,\n"
-        "   80; 16; 1,0,0,0, 0,1,0,0, 0,0,1,0, 10,0,0,1;;;\n  }\n }\n}\n";
+        "   80; 16; 1,0,0,0, 0,1,0,0, 0,0,1,0, 10,0,0,1;;;\n  }\n }\n}\n"
+        // A second set after it: D3DX numbers the last set in the file 0.
+        "AnimationSet stand {\n Animation { {b}\n  AnimationKey { 4; 1;\n"
+        "   0; 16; 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1;;;\n  }\n }\n}\n";
     // PCM sound: WAVEFORMATEX (PCM, mono, 22050 Hz, 16 bit) + data_size + 2 samples.
     std::string snd = {1, 0, 1, 0};
     auto le = [](uint32_t v, int n) { std::string s; for (int i = 0; i < n; i++) s += char(v >> (8 * i)); return s; };
@@ -230,8 +233,16 @@ void character_audio_tests(const std::string& dir) {
 
     Character c;
     check(load_character(a, "data/hero/00.X", c, &err) && c.errors.empty(), "character loads");
-    check(c.meshes.size() == 1 && c.meshes[0].skin.size() == 1 && c.anims.size() == 1 && c.anims[0].ticks == 80,
-          "one skinned mesh, one animation of 80 ticks");
+    check(c.meshes.size() == 1 && c.meshes[0].skin.size() == 1 && c.anims.size() == 2, "one skinned mesh, two sets");
+    check(c.anims.size() == 2 && c.anims[0].name == "stand" && c.anims[1].name == "walk" && c.anims[1].ticks == 80,
+          "animation sets numbered as D3DX does: last in the file first");
+    {
+        const float o[3] = {0, 0, 0};
+        float p[3] = {};
+        check(bone_point(c, 1, 80.0 / 4800, "B", o, p) && std::abs(p[0] - 10) < 1e-4f && std::abs(p[1]) < 1e-4f,
+              "bone point follows the animation (case-insensitive name)");
+        check(!bone_point(c, 1, 0, "nobone", o, p), "unknown bone");
+    }
     check(list_characters(a) == std::vector<std::string>{"data/hero/00.X"}, "character listed");
     {
         const float o[3] = {0, 0, 0}, ahead[3] = {0, 0, -10}, right[3] = {10, 0, 0};
@@ -246,7 +257,7 @@ void character_audio_tests(const std::string& dir) {
                   std::abs(st.batches[0].positions[5] - 1) < 1e-4f,
               "place_character turns, moves and puts the batches in the character slot");
     }
-    StageGeometry p0 = pose_character(c, -1, 0), p1 = pose_character(c, 0, 1.0 / 60), ph = pose_character(c, 0, 0.5 / 60);
+    StageGeometry p0 = pose_character(c, -1, 0), p1 = pose_character(c, 1, 1.0 / 60), ph = pose_character(c, 1, 0.5 / 60);
     check(p0.batches.size() == 1 && p0.batches[0].positions[3] == 1, "bind pose");
     check(p1.batches.size() == 1 && std::abs(p1.batches[0].positions[3] - 11) < 1e-4, "key at tick 80 moves the bone +10");
     check(std::abs(ph.batches[0].positions[3] - 6) < 1e-4, "halfway between keys");
@@ -258,15 +269,15 @@ void character_audio_tests(const std::string& dir) {
     // colour remains.
     {
         Character r = c;
-        r.anims[0].tracks[0].keys[0] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
-        const GBatch back = pose_character(r, 0, 0).batches.at(0);
+        r.anims[1].tracks[0].keys[0] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+        const GBatch back = pose_character(r, 1, 0).batches.at(0);
         check(back.colors[0] == 64 && back.colors[1] == 128 && back.colors[2] == 191, "facing away: emissive only");
     }
     {
         Character r = c;
         r.toon = {0.1f, 0.1f, 0.1f, 0.9f, 0.9f, 0.9f};  // two-texel ramp
-        r.anims[0].tracks[0].keys[0] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
-        const GBatch back = pose_character(r, 0, 0).batches.at(0);
+        r.anims[1].tracks[0].keys[0] = {-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1};
+        const GBatch back = pose_character(r, 1, 0).batches.at(0);
         check(back.colors[0] == int(std::lround((0.1 + 0.25) * 255)), "ramp at u = 0 adds to the emissive colour");
     }
     check(b.has_colors && b.colors[3] == 255, "opaque material alpha");

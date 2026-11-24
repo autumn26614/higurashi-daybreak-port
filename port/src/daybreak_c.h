@@ -173,6 +173,8 @@ typedef struct {
     int32_t hp, hp_bar, stamina; /* hp and its drain bar 0..10000, stamina 0..1000 */
     int32_t grounded;
 } DBFighterState;
+/* The battle keeps using the two characters (their skeletons place the attack spheres):
+ * free it before them. */
 DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter* p2, const float spawn1[3],
                          const float spawn2[3], char* err, int32_t err_len);
 void db_battle_free(DBBattle* b);

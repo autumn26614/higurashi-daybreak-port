@@ -51,9 +51,10 @@ struct Reader {
 
 }  // namespace
 
-int32_t FrameRecord::damage() const {
+int32_t FrameRecord::param(int offset) const {
+    if (offset < 0 || size_t(offset) + 4 > params.size()) return 0;
     int32_t v;
-    std::memcpy(&v, params.data(), 4);
+    std::memcpy(&v, params.data() + offset, 4);
     return v;
 }
 

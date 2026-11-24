@@ -84,4 +84,9 @@ std::vector<std::string> list_characters(const Archive& a);
 // length) as draw batches in slot 1, lit as described above. env is left empty (no fog).
 StageGeometry pose_character(const Character& c, int anim, double seconds);
 
+// Where a point given in bone `bone`'s space (e.g. an attack sphere offset) lies in model space
+// for animation `anim` at `seconds`; false if the skeleton has no such bone (case-insensitive).
+bool bone_point(const Character& c, int anim, double seconds, const std::string& bone, const float local[3],
+                float out[3]);
+
 }  // namespace db

@@ -594,7 +594,7 @@ DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter
             return nullptr;
         }
     }
-    b->battle.start(&b->defs[0], anim_frames(p1->c), spawn1, &b->defs[1], anim_frames(p2->c), spawn2);
+    b->battle.start(&b->defs[0], anim_frames(p1->c), spawn1, &b->defs[1], anim_frames(p2->c), spawn2, &p1->c, &p2->c);
     set_err(err, err_len, "");
     return b;
 }

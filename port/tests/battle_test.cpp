@@ -13,6 +13,13 @@ namespace {
 
 int failures = 0;
 
+// Puts a fighter in a state directly (what the game's SetState does).
+void set_state_for_test(db::battle::Fighter& f, int st) {
+    f.state = st;
+    f.step = 0;
+    f.frame = 0;
+}
+
 void check(bool ok, const char* what) {
     if (!ok) {
         std::printf("FAIL: %s\n", what);
@@ -36,6 +43,7 @@ struct Writer {
 
 struct Rec {
     int from, flags, hit = 0, radius = 0, damage = 0;
+    int ground = 100, air = 113, kx = 500, ky = 500, stop = 6;
 };
 struct StepSpec {
     int anim;
@@ -67,6 +75,14 @@ std::vector<uint8_t> build(const std::vector<MoveSpec>& moves, int nanims, const
                 w.i32(r.radius);
                 uint8_t params[80] = {};
                 std::memcpy(params, &r.damage, 4);
+                if (r.hit) {
+                    std::memcpy(params + 36, &r.stop, 4);
+                    std::memcpy(params + 40, &r.stop, 4);
+                    std::memcpy(params + 52, &r.ground, 4);
+                    std::memcpy(params + 56, &r.air, 4);
+                    std::memcpy(params + 68, &r.kx, 4);
+                    std::memcpy(params + 72, &r.ky, 4);
+                }
                 w.b.insert(w.b.end(), params, params + 80);
                 w.i32(r.flags);
                 w.i32(0);
@@ -115,6 +131,11 @@ std::vector<MoveSpec> moves() {
         {43, 0, 0, {{6, {shut}}}},
         {44, 0, 5, {{7, {shut, {10, 0x100}}}}},
         {100, 0, 99, {{8, {shut}}}},
+        {103, 0, 99, {{8, {shut}}}},
+        {113, 0, 99, {{8, {shut}}, {8, {shut}}, {8, {shut}}}},
+        {118, 0, 99, {{8, {shut}}}},
+        {120, 0, 99, {{8, {shut}}}},
+        {124, 0, 99, {{8, {shut}}, {8, {shut}}, {8, {shut}}}},
         {128, 0, 99, {{8, {shut}}}},
         {300, 10, 20, {{9, {shut}}, {9, {shut}}, {9, {shut, {4, 0, 1, 20, 1500}, {10, 0}, {15, 0x100}}}}},
         {301, 20, 30, {{9, {shut, {7, 0, 1, 20, 1500}, {16, 0}, {20, 0x100}}}}},
@@ -200,27 +221,47 @@ int main() {
     run(idle, 40);
     check(bt.f[0].state == 0, "back to idle after landing");
 
-    // Melee near the opponent hits once for 1500, the chain continues into 301.
+    // Melee near the opponent hits once for 1500: hit-stop, the ground reaction (100) pushes the
+    // defender back, it recovers to idle.
     const float near[3] = {0, 0, -150};
     bt.start(&def, frames, a, &def, frames, near);
     run(Pad{0, 0, 2}, 3);
     check(bt.f[0].state == 300, "melee button -> 300");
-    int hp_after = 0;
-    for (int i = 0; i < 80 && bt.f[0].state == 300; ++i) {
-        run(Pad{0, 0, i > 40 && i < 44 ? 2u : 0u}, 1);
-        hp_after = bt.f[1].hp;
-    }
-    check(hp_after == 8500 || bt.f[1].hp == 8500, "one hit for 1500");
-    check(bt.f[1].state == 100 || bt.f[1].hp < 10000, "opponent reacts");
+    for (int i = 0; i < 80 && bt.f[1].hp == 10000; ++i) run(idle, 1);
+    check(bt.f[1].hp == 8500, "one hit for 1500");
+    check(bt.f[1].state == 100, "ground reaction from the record");
+    check(bt.f[0].freeze > 0 && bt.f[1].freeze > 0, "hit-stop on both");
+    const float before = dist();
+    run(idle, 20);
+    check(dist() > before + 10.f, "knocked back");
     run(idle, 60);
+    check(bt.f[1].hp == 8500, "still one hit");
+    check(bt.f[1].state == 0, "recovers");
     check(bt.f[1].hp_bar == bt.f[1].hp, "drain bar catches up");
 
-    // Knock-out.
+    // Hit in the air: the air reaction (113) launches by the knock-back, lands lying down (118),
+    // gets up (120 -> 128 without input) and stands.
+    bt.start(&def, frames, a, &def, frames, b);
+    bt.f[1].knock[0] = 500;
+    bt.f[1].knock[1] = 1000;
+    set_state_for_test(bt.f[1], 113);
+    float peak = 0;
+    std::vector<int> seen;
+    for (int i = 0; i < 400; ++i) {
+        run(idle, 1);
+        if (seen.empty() || seen.back() != bt.f[1].state) seen.push_back(bt.f[1].state);
+        peak = std::max(peak, bt.f[1].pos[1]);
+    }
+    auto saw = [&](int st) { return std::find(seen.begin(), seen.end(), st) != seen.end(); };
+    check(saw(113) && saw(118) && saw(120) && saw(128) && bt.f[1].state == 0 && peak > 100.f,
+          "launch (vy 10), down, get up");
+
+    // Knock-out: launched, stays down, the round is over.
     bt.start(&def, frames, a, &def, frames, near);
     bt.f[1].hp = 1000;
     run(Pad{0, 0, 2}, 3);
-    run(idle, 60);
-    check(bt.winner == 0 && bt.f[1].state == 128, "knock-out ends the round");
+    run(idle, 200);
+    check(bt.winner == 0 && bt.f[1].hp == 0 && bt.f[1].state == 118, "knock-out stays down");
 
     // The computer opponent moves on its own.
     fresh();
