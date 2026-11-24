@@ -87,7 +87,7 @@ struct StoryRunView: View {
     var teamIndex = 0
 
     enum Phase: Equatable {
-        case before(Int), battle(Int), after(Int), ending, end
+        case before(Int), battle(Int), win(Int), after(Int), ending, end
     }
 
     @State private var phase: Phase = .before(0)
@@ -127,12 +127,15 @@ struct StoryRunView: View {
             case .battle(let i):
                 if let fighters = entrants(i) {
                     BattleView(urls: urls, preset: BattlePreset(stage: episode(i).stage, fighters: fighters)) { _ in
-                        phase = .after(i)
+                        phase = .win(i)
                     }
                     .id("battle\(i)")
                 } else {
                     Button("Skip battle") { phase = .after(i) }
                 }
+            case .win(let i):
+                WinView(book: book, pair: (team.members.0, team.members.1)) { phase = .after(i) }
+                    .id("win\(i)")
             case .after(let i):
                 scene(i, part: 1) { phase = next(after: i) }
             case .ending:
@@ -158,7 +161,7 @@ struct StoryRunView: View {
 
     private var title: String {
         switch phase {
-        case .before(let i), .battle(let i), .after(let i):
+        case .before(let i), .battle(let i), .win(let i), .after(let i):
             return String(format: "Episode %d of %d", i + 1, Int(team.episodes))
         case .ending, .end:
             return "Story"
@@ -326,5 +329,73 @@ struct TeamSelectView: View {
         guard cursor < open.count else { return }
         if let s = art.sound("data/sysse/000.wav") { effects.play(s) }
         chosen = open[cursor]
+    }
+}
+
+/// The win screen after a battle (battle phase 4, 0x5B3750): the winning pair's portraits
+/// (data/win/%02da) and a random quote from data/scenario/win/%02d-%02d-%d.txt (lower character
+/// number first) with its voice from data/voice/win/. approx.: the game picks the file's last
+/// number (1-4) from the round's margin; here grade 1. The portraits stand in the talk
+/// scene's slots (x 200 and 600).
+struct WinView: View {
+    let book: TalkBook
+    let pair: (Int32, Int32)
+    let onContinue: () -> Void
+    @State private var image: CGImage?
+    @State private var voice = SoundPlayer(kind: .voice)
+    @State private var music = SoundPlayer(kind: .music)
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image {
+                Image(decorative: image, scale: 1).resizable().interpolation(.high)
+                    .aspectRatio(4.0 / 3.0, contentMode: .fit)
+                    .accessibilityIdentifier("winFrame")
+            } else {
+                Text("WIN").font(.largeTitle.bold()).foregroundStyle(.white)
+            }
+        }
+        .ignoresSafeArea()
+        .contentShape(Rectangle())
+        .onTapGesture {
+            voice.stop()
+            music.stop()
+            onContinue()
+        }
+        .task { show() }
+        .onDisappear { voice.stop(); music.stop() }
+    }
+
+    private func show() {
+        if let m = book.sound("data/bgm/win.ogg") { music.play(m) }
+        let a = min(pair.0, pair.1), b = max(pair.0, pair.1)
+        guard let name = book.script(endingWith: String(format: "%02d-%02d-%d.txt", a, b, 1)),
+              let pages = try? book.pages(script: name), !pages.isEmpty else { return }
+        let page = pages[Int.random(in: 0..<pages.count)]
+        if !page.voice.isEmpty, let v = book.sound("data/voice/win/" + page.voice) { voice.play(v) }
+        let bg = portraits([pair.0, pair.1])
+        let f = book.frame(page, reveal: 100_000, arrow: true, background: bg)
+        image = TalkBook.cgImage(f.rgba)
+    }
+
+    /// 800x600 RGBA: the two portraits over black.
+    private func portraits(_ who: [Int32]) -> [UInt8]? {
+        var rgba = [UInt8](repeating: 0, count: 800 * 600 * 4)
+        let drawn: Bool = rgba.withUnsafeMutableBytes { raw in
+            guard let ctx = CGContext(data: raw.baseAddress, width: 800, height: 600, bitsPerComponent: 8, bytesPerRow: 800 * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.setFillColor(CGColor(gray: 0, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 800, height: 600))
+            for (slot, n) in who.enumerated() {
+                guard let img = book.image(String(format: "data/win/%02da.bmp", n)) else { continue }
+                let x = CGFloat(slot == 0 ? 200 : 600) - 256
+                // CoreGraphics' origin is the bottom left; the game's is the top left (y = 88).
+                ctx.draw(img, in: CGRect(x: x, y: 600 - 88 - 512, width: 512, height: 512))
+            }
+            return true
+        }
+        return drawn ? rgba : nil
     }
 }

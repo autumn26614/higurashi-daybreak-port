@@ -85,6 +85,12 @@ final class TalkBook {
         return n > 0 ? String(cString: out) : nil
     }
 
+    /// An image entry ("data/win/00a.bmp" reads the .cnv), or nil.
+    func image(_ name: String) -> CGImage? { TitleArt.image(archives, name, crop: nil) }
+
+    /// A sound entry decoded, or nil.
+    func sound(_ entry: String) -> DecodedSound? { try? DecodedSound.load(archives, Array(entry.utf8)) }
+
     /// Story mode team n (data/scenario/team%02d.dat), or nil.
     func team(_ n: Int) -> DBTeam? {
         var t = DBTeam()
