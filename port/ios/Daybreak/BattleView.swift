@@ -6,8 +6,19 @@ import simd
 /// battle core (BattleGame: the game's state machine for movement, dashes, jumps and melee)
 /// with 1P on the on-screen controls, a keyboard or a controller and 2P on the computer;
 /// "Pose" shows both playing one animation set with a free camera.
+/// A fixed battle (story mode): the stage and the two models, by archive entry.
+struct BattlePreset: Equatable {
+    let stage: Int
+    let p1: String  // e.g. "data/keiichi/00.X"
+    let p2: String
+}
+
 struct BattleView: View {
     let urls: [URL]
+    var preset: BattlePreset? = nil
+    /// With a preset: called with the winner (0 = 1P) when the player moves on.
+    var onResult: ((Int) -> Void)? = nil
+    @State private var ready = false  // the pickers are set: changes reload
     @State private var stages: [Int] = []
     @State private var models: [[UInt8]] = []
     @State private var stage = 1
@@ -46,7 +57,7 @@ struct BattleView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            controlsBar
+            if preset == nil { controlsBar }
             ZStack {
                 Color.black
                 if let renderer {
@@ -62,7 +73,16 @@ struct BattleView: View {
                     if let winner, koFrames >= 180 {
                         VStack(spacing: 12) {
                             Text(winner == 0 ? "1P WINS" : "2P WINS").font(.largeTitle.bold()).foregroundStyle(.white)
-                            Button("Rematch") { restart() }.buttonStyle(.borderedProminent)
+                            if let onResult {
+                                if winner == 0 {
+                                    Button("Continue") { music.stop(); sounds?.stop(); onResult(0) }
+                                        .buttonStyle(.borderedProminent)
+                                        .accessibilityIdentifier("battleContinue")
+                                }
+                                Button(winner == 0 ? "Fight again" : "Retry") { restart() }.buttonStyle(.bordered)
+                            } else {
+                                Button("Rematch") { restart() }.buttonStyle(.borderedProminent)
+                            }
                         }
                         .padding(24).background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
                         .accessibilityIdentifier("battleResult")
@@ -83,9 +103,9 @@ struct BattleView: View {
         .navigationTitle("Battle")
         .navigationBarTitleDisplayMode(.inline)
         .task { await start() }
-        .onChange(of: stage) { _ in Task { await load() } }
-        .onChange(of: p1) { _ in Task { await load() } }
-        .onChange(of: p2) { _ in Task { await load() } }
+        .onChange(of: stage) { _ in if ready { Task { await load() } } }
+        .onChange(of: p1) { _ in if ready { Task { await load() } } }
+        .onChange(of: p2) { _ in if ready { Task { await load() } } }
         .onChange(of: anim) { _ in started = Date() }
         .onChange(of: fight) { on in
             if on {
@@ -154,8 +174,18 @@ struct BattleView: View {
         models = m
         if let first = s.first, !s.contains(stage) { stage = first }
         if m.count < 2 { p2 = 0 }
+        if let preset {
+            func index(_ entry: String) -> Int? {
+                m.firstIndex { String(decoding: $0, as: UTF8.self).lowercased() == entry.lowercased() }
+            }
+            if s.contains(preset.stage) { stage = preset.stage }
+            p1 = index(preset.p1) ?? p1
+            p2 = index(preset.p2) ?? p2
+            fight = true
+        }
         renderer = try? StageRenderer()
         await load()
+        ready = true
     }
 
     private func load() async {

@@ -1,5 +1,7 @@
 #include "story.h"
 
+#include <cstring>
+
 #include <algorithm>
 #include <cstdlib>
 
@@ -149,6 +151,39 @@ std::vector<uint8_t> compose(const Scene& s,
         draw(sl.image, int(slot_x(sl, frame)) - 256, 88, sl.mirrored);
     }
     return out;
+}
+
+bool parse_team(const uint8_t* data, size_t size, Team& out) {
+    out = Team{};
+    if (!data || size < 8 + 6 * 20) return false;
+    auto u32 = [&](size_t at) {
+        uint32_t v;
+        std::memcpy(&v, data + at, 4);
+        return int(v);
+    };
+    out.members[0] = u32(0);
+    out.members[1] = u32(4);
+    for (int i = 0; i < 6; ++i) {
+        const size_t at = 8 + size_t(i) * 20;
+        Episode e;
+        e.opponents[0] = u32(at);
+        e.opponents[1] = u32(at + 4);
+        e.stage = u32(at + 8);
+        e.stage2 = u32(at + 12);
+        e.number = u32(at + 16);
+        out.episodes.push_back(e);
+    }
+    if (size > 0x80) {
+        const char* m = reinterpret_cast<const char*>(data + 0x80);
+        out.movie.assign(m, strnlen(m, size - 0x80));
+    }
+    return true;
+}
+
+const char* character_dir(int n) {
+    static const char* const dirs[] = {"rena",   "mion",    "keiichi", "shion",  "rika", "satoko", "ohishi",
+                                       "akasaka", "takano", "tomitake", "irie",  "chie", "kasai",  "akane"};
+    return n >= 0 && size_t(n) < sizeof dirs / sizeof dirs[0] ? dirs[n] : nullptr;
 }
 
 }  // namespace story

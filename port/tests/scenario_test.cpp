@@ -296,6 +296,31 @@ int main(int argc, char** argv) {
     check(empty && db_script_page_count(empty) == 0, "C API parses an empty script");
     db_script_free(empty);
 
+    // Story team file: members 2 and 0, six episodes, the ending movie at 0x80.
+    {
+        std::vector<uint8_t> t(158, 0);
+        auto put = [&](size_t at, uint32_t v) { std::memcpy(t.data() + at, &v, 4); };
+        put(0, 2);
+        put(4, 0);
+        for (uint32_t i = 0; i < 6; ++i) {
+            put(8 + i * 20, 3 + i);
+            put(12 + i * 20, 4 + i);
+            put(16 + i * 20, 1 + i);
+            put(20 + i * 20, 1 + i);
+            put(24 + i * 20, 1 + i);
+        }
+        std::memcpy(t.data() + 0x80, "movie/e00.mpg", 13);
+        db::story::Team team;
+        check(db::story::parse_team(t.data(), t.size(), team) && team.members[0] == 2 && team.members[1] == 0 &&
+                  team.episodes.size() == 6 && team.episodes[5].opponents[0] == 8 && team.episodes[5].stage == 6 &&
+                  team.episodes[5].number == 6 && team.movie == "movie/e00.mpg",
+              "team file");
+        check(!db::story::parse_team(t.data(), 20, team), "short team file fails");
+        check(std::string(db::story::character_dir(0)) == "rena" &&
+                  std::string(db::story::character_dir(13)) == "akane" && !db::story::character_dir(14),
+              "story character folders");
+    }
+
     printf("%s\n", failures ? "FAIL" : "PASS");
     return failures ? 1 : 0;
 }

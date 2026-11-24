@@ -73,6 +73,18 @@ final class TalkBook {
     private let scopedURLs: [URL]
     private var story: OpaquePointer?  // the script last opened with pages(script:)
 
+    /// Story mode team n (data/scenario/team%02d.dat), or nil.
+    func team(_ n: Int) -> DBTeam? {
+        var t = DBTeam()
+        return db_team_load(archives, Int32(n), &t) == 1 ? t : nil
+    }
+
+    /// The script whose entry ends with `file` ("D01-0.txt"), case-insensitive.
+    func script(endingWith file: String) -> [UInt8]? {
+        let want = file.lowercased()
+        return scriptNames.first { String(decoding: $0, as: UTF8.self).lowercased().hasSuffix("/" + want) }
+    }
+
     init(urls: [URL]) throws {
         let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
         var err = [CChar](repeating: 0, count: 256)

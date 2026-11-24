@@ -43,6 +43,8 @@ struct TalkScriptList: View {
 struct TalkView: View {
     let book: TalkBook
     let scriptName: [UInt8]
+    /// Called on a press after the last page is fully shown (story mode moves on).
+    var onFinish: (() -> Void)? = nil
     @State private var pages: [TalkPage] = []
     @State private var index = 0
     @State private var counter = -30  // frames; the counter starts after a 30-frame delay
@@ -126,6 +128,11 @@ struct TalkView: View {
             counter = -30
             openPage()
             arrowFrame = 0
+        } else if let onFinish {
+            player.stop()
+            musicPlayer.stop()
+            onFinish()
+            return
         }
         redraw()
     }

@@ -77,5 +77,28 @@ float slot_x(const Slot& s, int frame);
 // Frames until every move of the scene has finished (0 if none).
 int settle_frames(const Scene& s);
 
+// Story mode teams, data/scenario/team%02d.dat (158 bytes): the two members, then six
+// episodes - the opposing pair, the stage (twice) and the episode number N, whose scenes are
+// data/scenario/D%02d-0.txt (before the battle) and D%02d-1.txt (after) - and the ending
+// movie name at 0x80. Characters are numbered as the player classes (factory 0x5C8140):
+// 0 Rena, 1 Mion, 2 Keiichi, 3 Shion, 4 Rika, 5 Satoko, 6 Ohishi, 7 Akasaka, 8 Takano,
+// 9 Tomitake, 10 Irie, 11 Chie, 12 Kasai, 13 Akane (see character_dir).
+struct Episode {
+    int opponents[2] = {0, 0};
+    int stage = 0, stage2 = 0;
+    int number = 0;
+};
+
+struct Team {
+    int members[2] = {0, 0};
+    std::vector<Episode> episodes;
+    std::string movie;
+};
+
+bool parse_team(const uint8_t* data, size_t size, Team& out);
+
+// The folder of character n ("rena" for data/rena/00.X), or nullptr.
+const char* character_dir(int n);
+
 }  // namespace story
 }  // namespace db

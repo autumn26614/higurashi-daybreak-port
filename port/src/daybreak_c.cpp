@@ -743,6 +743,33 @@ int32_t db_battle_bullet_model(const DBBattle* b, int32_t owner, int32_t slot, c
     return int32_t(path.size());
 }
 
+int32_t db_team_load(DBArchives* a, int32_t team, DBTeam* out) {
+    if (!a || !out) return 0;
+    char path[48];
+    snprintf(path, sizeof path, "data/scenario/team%02d.dat", int(team));
+    const db::Entry* e = a->set.find(path);
+    std::vector<uint8_t> bytes;
+    std::string err;
+    db::story::Team t;
+    if (!e || !a->set.read(*e, bytes, &err) || !db::story::parse_team(bytes.data(), bytes.size(), t)) return 0;
+    *out = DBTeam{};
+    out->members[0] = t.members[0];
+    out->members[1] = t.members[1];
+    out->episodes = int32_t(std::min<size_t>(t.episodes.size(), 6));
+    for (int32_t i = 0; i < out->episodes; ++i) {
+        out->opponents[i][0] = t.episodes[size_t(i)].opponents[0];
+        out->opponents[i][1] = t.episodes[size_t(i)].opponents[1];
+        out->stage[i] = t.episodes[size_t(i)].stage;
+        out->number[i] = t.episodes[size_t(i)].number;
+    }
+    const size_t n = std::min(t.movie.size(), sizeof out->movie - 1);
+    std::memcpy(out->movie, t.movie.data(), n);
+    out->movie[n] = 0;
+    return 1;
+}
+
+const char* db_story_character_dir(int32_t n) { return db::story::character_dir(n); }
+
 int32_t db_battle_winner(const DBBattle* b) { return b ? b->battle.winner : -1; }
 
 int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out) {

@@ -145,6 +145,12 @@ struct ContentView: View {
             }
             .accessibilityIdentifier("characters")
             NavigationLink {
+                StoryView(urls: archiveURLs)
+            } label: {
+                Label("Story", systemImage: "book")
+            }
+            .accessibilityIdentifier("story")
+            NavigationLink {
                 BattleView(urls: archiveURLs)
             } label: {
                 Label("Battle", systemImage: "person.2")

@@ -209,6 +209,22 @@ int32_t db_battle_bullet_model(const DBBattle* b, int32_t owner, int32_t slot, c
 /* -1 while both stand, else the winner's index. */
 int32_t db_battle_winner(const DBBattle* b);
 
+/* ---- Story mode teams (src/story.h) ---------------------------------------------------
+ * data/scenario/team%02d.dat: members, six episodes (opposing pair, stage, episode number N;
+ * scenes D%02d-0.txt before the battle and D%02d-1.txt after), ending movie. */
+typedef struct {
+    int32_t members[2];
+    int32_t episodes;
+    int32_t opponents[6][2];
+    int32_t stage[6];
+    int32_t number[6];
+    char movie[64];
+} DBTeam;
+int32_t db_team_load(DBArchives* a, int32_t team, DBTeam* out);
+/* Folder of story character n ("rena": data/rena/00.X), or NULL. */
+const char* db_story_character_dir(int32_t n);
+
+
 /* Draw passes in game order (src/recipe.h). blend: 0 = alpha (SRCALPHA, INVSRCALPHA),
  * 1 = multiply (DESTCOLOR, ZERO), 2 = additive (SRCALPHA, ONE). A batch whose material
  * power != 0 is drawn additively with no Z-write and no fog, whatever its pass says. */
