@@ -314,6 +314,41 @@ void reaction(Fighter& f) {
     }
 }
 
+// Guard (moves 390-392; their state code is not decoded, the behaviour follows the data):
+// 390 raises the guard (step 0), holds it while both buttons stay down (step 1, frame flag
+// 0x400 = guarding) and lowers it (step 2); 391 is a blocked hit, 392 a guard break.
+bool guarding(const Fighter& f) {
+    const FrameRecord* r = f.record();
+    return r && (r->flags & 0x400);
+}
+
+void guard(Fighter& f) {
+    const bool held = f.in.held[0] > 0 && f.in.held[1] > 0;
+    f.extra = 0;
+    f.turn_rate = 0;
+    ease0(f.speed, 0.5f);
+    if (!f.ground) return to_fall(f);
+    switch (f.state) {
+    case 390:
+        regen(f);
+        if (f.step == 1) {
+            if (!held) set_step(f, 2);
+            else if (f.frame + 1 >= step_len(f)) f.frame = 0;  // hold the guard pose
+        }
+        if (done(f)) set_state(f, 0);
+        return;
+    case 391:
+        if (done(f)) {
+            if (held && set_state(f, 390)) set_step(f, 1);
+            else set_state(f, 0);
+        }
+        return;
+    default:  // 392
+        if (done(f)) set_state(f, 0);
+        return;
+    }
+}
+
 // Per-state update (0x443EE0). Returns after a state change, like the game.
 void update_state(Fighter& f, const Fighter& o) {
     const int s = f.state, st = f.step, fr = f.frame;
@@ -501,6 +536,7 @@ void update_state(Fighter& f, const Fighter& o) {
         break;
     }
     if (s >= 100 && s < 300) return reaction(f);
+    if (s >= 390 && s <= 392) return guard(f);
     // Attacks (300 and up); speeds from the Rena class, used for every character for now.
     const bool air = s == 320 || s == 332;
     if (done(f)) {
@@ -634,6 +670,8 @@ void commands(Fighter& f) {
         static const int ground_dash[5] = {0, 20, 27, 24, 23};
         if (go(f.ground ? ground_dash[f.in.tap] : 30)) return;
     }
+    // Jump + melee held together on the ground: guard (0x186 in 0x44B3F0).
+    if (f.ground && f.in.held[0] > 0 && f.in.held[1] > 0 && f.stamina > 0 && s != 390 && go(390)) return;
     if (pressed(f.in, 1)) {
         if (!f.ground) {
             if (s == 30 && f.step < 2 && go(332)) return;
@@ -787,6 +825,21 @@ void hits(Fighter& a, Fighter& d) {
     for (int i = 0; i < n && !hit; ++i) hit = touches(d, pts[i], float(rec->radius));
     if (!hit) return;
     a.hit_serial = serial;
+    a.freeze = std::clamp(rec->param(36), 0, 30);
+    d.freeze = std::clamp(rec->param(40), 0, 30);
+    // approx.: a guard blocks hits from the front (within 90 degrees of where the defender
+    // faces); the blocked hit costs stamina (damage / 5) instead of HP and pushes back half
+    // as far; out of stamina the guard breaks.
+    if (guarding(d) || d.state == 391) {
+        const float dx = a.pos[0] - d.pos[0], dz = a.pos[2] - d.pos[2];
+        const float to_attacker = std::atan2(-dx, -dz), diff = std::remainder(to_attacker - d.body_yaw(), 2 * kPi);
+        if (std::fabs(diff) < kPi / 2) {
+            d.stamina = std::max(0, d.stamina - std::max(0, rec->damage()) / 5);
+            d.knock[0] = float(rec->param(68)) * 0.5f;
+            if (set_state(d, d.stamina > 0 ? 391 : 392)) d.speed = -d.knock[0] * 0.01f - 4.f;
+            return;
+        }
+    }
     d.hp = std::max(0, d.hp - std::max(0, rec->damage()));
     // The record names the reaction on the ground (params 52) and in the air (56), the
     // knock-back (68 / 72, x100) and the hit-stop of attacker and defender (36 / 40).
@@ -797,8 +850,6 @@ void hits(Fighter& a, Fighter& d) {
     d.heading = 0;  // approx.: square up to the attacker
     d.extra = 0;
     if (!set_state(d, react)) set_state(d, 100);
-    a.freeze = std::clamp(rec->param(36), 0, 30);
-    d.freeze = std::clamp(rec->param(40), 0, 30);
 }
 
 // approx.: a placeholder opponent, not the game's AI.

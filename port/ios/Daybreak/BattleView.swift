@@ -330,8 +330,8 @@ struct BattleHUD: View {
     }
 }
 
-/// On-screen stick (left) and Jump / Melee / Shot buttons (right). Double-tap the stick
-/// for a dash; hold Jump to keep rising.
+/// On-screen stick (left) and Jump / Melee / Shot / Guard buttons (right). Double-tap the
+/// stick for a dash; hold Jump to keep rising; Guard is Jump + Melee held together.
 struct TouchControls: View {
     @ObservedObject var controls: BattleControls
     @State private var knob = CGSize.zero
@@ -343,10 +343,13 @@ struct TouchControls: View {
                 stick
                 Spacer()
                 VStack(spacing: 14) {
-                    button("Shot", bit: 2)
                     HStack(spacing: 14) {
-                        button("Melee", bit: 1)
-                        button("Jump", bit: 0)
+                        button("Guard", mask: 0b011)  // the game's macro button b5 = b0 + b1
+                        button("Shot", mask: 0b100)
+                    }
+                    HStack(spacing: 14) {
+                        button("Melee", mask: 0b010)
+                        button("Jump", mask: 0b001)
                     }
                 }
             }
@@ -379,10 +382,8 @@ struct TouchControls: View {
         .accessibilityIdentifier("stick")
     }
 
-    private func button(_ title: String, bit: UInt32) -> some View {
-        ButtonPad(title: title) { down in
-            if down { controls.touchButtons |= 1 << bit } else { controls.touchButtons &= ~(1 << bit) }
-        }
+    private func button(_ title: String, mask: UInt32) -> some View {
+        ButtonPad(title: title) { down in controls.set(title, mask: mask, down: down) }
     }
 }
 

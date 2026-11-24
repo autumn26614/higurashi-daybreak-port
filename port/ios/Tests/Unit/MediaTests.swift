@@ -75,6 +75,13 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(pad.x, 0)
         XCTAssertEqual(pad.y, 0)
         XCTAssertEqual(pad.buttons, 0)
+        // A guard button holds jump and melee together; releasing it lets both go.
+        let controls = BattleControls()
+        controls.set("Guard", mask: 0b011, down: true)
+        controls.set("Shot", mask: 0b100, down: true)
+        XCTAssertEqual(controls.pad().buttons, 0b111)
+        controls.set("Guard", mask: 0b011, down: false)
+        XCTAssertEqual(controls.pad().buttons, 0b100)
     }
 
     func testDecodedSoundLoopsAndPlayerAcceptsIt() {

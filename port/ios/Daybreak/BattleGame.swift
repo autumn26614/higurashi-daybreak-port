@@ -56,12 +56,20 @@ extension DBFighterState {
     var position: SIMD3<Float> { SIMD3(pos.0, pos.1, pos.2) }
 }
 
-/// Controls for 1P: the on-screen stick and buttons, a hardware keyboard (arrows + Z / X / C,
-/// the game's defaults) or a game controller. Buttons: 0 jump / boost, 1 melee, 2 shot.
+/// Controls for 1P: the on-screen stick and buttons, a hardware keyboard (the game's defaults:
+/// arrows, Z jump, X melee, C shot, S = X + C, D = Z + X guard) or a game controller (A jump,
+/// X melee, B / Y shot, R1 guard). Buttons: 0 jump / boost, 1 melee, 2 shot.
 final class BattleControls: ObservableObject {
     /// On-screen stick, -1...1 each axis (y < 0 = up on screen = toward the opponent).
     var stick = SIMD2<Float>(0, 0)
-    var touchButtons: UInt32 = 0
+    private var held: [String: UInt32] = [:]  // on-screen buttons down, by name
+
+    /// Buttons held on screen (a button can stand for several, like the game's macros).
+    var touchButtons: UInt32 { held.values.reduce(0, |) }
+
+    func set(_ name: String, mask: UInt32, down: Bool) {
+        held[name] = down ? mask : nil
+    }
 
     func pad() -> DBPad {
         var v = stick
@@ -75,6 +83,8 @@ final class BattleControls: ObservableObject {
             if down(.keyZ) { buttons |= 1 }
             if down(.keyX) { buttons |= 2 }
             if down(.keyC) { buttons |= 4 }
+            if down(.keyS) { buttons |= 2 | 4 }  // macro b4 = b1 + b2
+            if down(.keyD) { buttons |= 1 | 2 }  // macro b5 = b0 + b1 (guard)
         }
         if let g = GCController.current?.extendedGamepad {
             let s = SIMD2(g.leftThumbstick.xAxis.value, -g.leftThumbstick.yAxis.value)
@@ -84,6 +94,7 @@ final class BattleControls: ObservableObject {
             if g.buttonA.isPressed { buttons |= 1 }
             if g.buttonX.isPressed { buttons |= 2 }
             if g.buttonB.isPressed || g.buttonY.isPressed { buttons |= 4 }
+            if g.rightShoulder.isPressed { buttons |= 1 | 2 }  // guard
         }
         // The game reads directions digitally.
         func axis(_ f: Float) -> Int32 { f < -0.4 ? -1 : f > 0.4 ? 1 : 0 }

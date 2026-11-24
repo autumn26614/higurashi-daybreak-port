@@ -137,6 +137,9 @@ std::vector<MoveSpec> moves() {
         {120, 0, 99, {{8, {shut}}}},
         {124, 0, 99, {{8, {shut}}, {8, {shut}}, {8, {shut}}}},
         {128, 0, 99, {{8, {shut}}}},
+        {390, 0, 150, {{10, {shut}}, {10, {{0, 0x400}}}, {10, {shut}}}},
+        {391, 0, 150, {{10, {{0, 0x400}}}}},
+        {392, 0, 150, {{10, {shut}}}},
         {300, 10, 20, {{9, {shut}}, {9, {shut}}, {9, {shut, {4, 0, 1, 20, 1500}, {10, 0}, {15, 0x100}}}}},
         {301, 20, 30, {{9, {shut, {7, 0, 1, 20, 1500}, {16, 0}, {20, 0x100}}}}},
     };
@@ -267,6 +270,23 @@ int main() {
     fresh();
     for (int i = 0; i < 120; ++i) bt.step(&idle, nullptr);
     check(dist() < 790.f, "computer walks in");
+
+    // Guard: jump + melee held together raises the guard (390); a hit from the front is
+    // blocked (391): no HP lost, stamina spent; letting go lowers it.
+    bt.start(&def, frames, a, &def, frames, near);
+    const Pad both{0, 0, 3};
+    for (int i = 0; i < 25; ++i) bt.step(&idle, &both);
+    check(bt.f[1].state == 390 && bt.f[1].step == 1, "guard raised and held");
+    int blocked = 0;
+    for (int i = 0; i < 60; ++i) {
+        const Pad hold{0, 0, 3};
+        const Pad atk{0, 0, i % 30 < 3 ? 2u : 0u};
+        bt.step(&atk, &hold);
+        if (bt.f[1].state == 391) ++blocked;
+    }
+    check(blocked > 0 && bt.f[1].hp == 10000 && bt.f[1].stamina < 1000, "hit blocked: stamina, not HP");
+    for (int i = 0; i < 80; ++i) bt.step(&idle, &idle);
+    check(bt.f[1].state == 0, "guard lowered");
 
     // Stage floor: a platform at y = 100 (z > -200) above ground at y = 0. Walking forward off
     // the edge drops more than 20, so the fighter falls (43) and lands (44) on the ground.
