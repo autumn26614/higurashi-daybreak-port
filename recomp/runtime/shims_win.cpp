@@ -183,7 +183,8 @@ SHIM(user32, MapVirtualKeyA, 8) { return arg(c, 0); }
 
 // ---- gdi32 (text is drawn by the font module; these keep handles) ----
 SHIM(gdi32, GetStockObject, 4) { return 0x40000 + arg(c, 0); }
-SHIM(gdi32, SelectObject, 8) { return 0x40000; }
+uint32_t rt_select_font(uint32_t h);  // shims_font.cpp
+SHIM(gdi32, SelectObject, 8) { return rt_select_font(arg(c, 1)); }
 SHIM(gdi32, DeleteObject, 4) { return 1; }
 
 // ---- winmm ----

@@ -99,6 +99,10 @@ uint32_t wait_one(uint32_t h, uint32_t ms) {
 }
 }  // namespace
 
+void rt_set_event(uint32_t h) {  // for the DirectSound notifications
+    if (auto e = handle_as<Event>(h)) e->set(true);
+}
+
 // ---- synchronisation ----
 SHIM(kernel32, InitializeCriticalSection, 4) {
     section(arg(c, 0));

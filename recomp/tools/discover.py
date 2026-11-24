@@ -200,12 +200,17 @@ def discover(img, extra_seeds=()):
                 continue
             if not take(a, True):
                 functions.add(a)  # a call target we cannot decode: keep it so calls trap clearly
-        for a in sorted(candidates - weak - functions - rejected):
-            if a in insns:  # inside code already found (switch cases, handlers): not an entry
+        case_targets = {t for ts in jump_tables.values() for t in ts}
+        batch = sorted(candidates - weak - functions - rejected)
+        candidates.clear()
+        for a in batch:
+            if a in insns:  # an instruction of code already found: an entry too, unless a switch case
+                if a not in case_targets:
+                    weak.add(a)
                 continue
             if not take(a, False):
                 rejected.add(a)
-        candidates.clear()
+        candidates -= weak | functions | rejected
     weak -= functions
     return insns, functions, weak, jump_tables, counts[0], counts[1]
 
