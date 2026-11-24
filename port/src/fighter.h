@@ -145,10 +145,28 @@ struct Fighter {
 // moves out as they separate (`distance` is the camera's +0x78, 300 in the game).
 void follow_camera(const float me[3], const float them[3], float distance, float eye[3], float target[3]);
 
+// One fighter entering a battle.
+struct Entrant {
+    const CharDef* def = nullptr;
+    std::vector<int> anim_frames;  // frame count of each of its model's animation sets
+    float spawn[3]{};
+    const Character* model = nullptr;  // skeleton for attack spheres (nullptr: in front)
+    int team = 0;
+};
+
+// Two fighters (1 vs 1) or four (2 vs 2, the game's format: players 0, 1 against 2, 3).
+// Each fighter faces and fights a target, the nearest opponent still standing.
 struct Battle {
-    std::array<Fighter, 2> f;
+    std::vector<Fighter> f;
+    std::vector<int> team;    // team of each fighter
+    std::vector<int> target;  // the opponent each fighter faces
     int frame = 0;
-    int winner = -1;  // set when a fighter is knocked out
+    int winner = -1;  // the winning team, once every member of the other team is knocked out
+    // Round timer (battle +0x43C8): at the limit the team with fewer knock-outs wins, then the
+    // one with more HP, a tie at random (0x5B3750 phase 2). approx.: the limit is an option
+    // in the game (not decoded); 0 = no limit.
+    int time_limit = 180 * 60;
+    bool timed_out = false;
     Floor floor;      // empty: flat floor at each spawn height
     Rng rng;          // the computer player's dice
     std::vector<SoundEvent> events;  // sounds started since the last take_events()
@@ -156,8 +174,8 @@ struct Battle {
     std::vector<SoundEvent> take_events();
     std::vector<Bullet> shots;  // in flight
 
-    // anim_frames: per character, the frame count of each of its model's animation sets.
-    // models: the skeletons for attack spheres (nullptr: spheres in front of the attacker).
+    void start(std::vector<Entrant> entrants);
+    // 1 vs 1 (teams 0 and 1).
     void start(const CharDef* a, std::vector<int> frames_a, const float spawn_a[3], const CharDef* b,
                std::vector<int> frames_b, const float spawn_b[3], const Character* model_a = nullptr,
                const Character* model_b = nullptr);
@@ -165,8 +183,10 @@ struct Battle {
     void set_floor(Floor fl);
     void spawn_bullets(int fighter);
     void fly_bullets();
-    // pads[i] == nullptr: that fighter is computer controlled.
-    void step(const Pad* p1, const Pad* p2);
+    // pads[i] == nullptr (or missing): that fighter is computer controlled.
+    void step(const std::vector<const Pad*>& pads);
+    void step(const Pad* p1, const Pad* p2) { step(std::vector<const Pad*>{p1, p2}); }
+    void retarget();
 };
 
 }  // namespace db::battle

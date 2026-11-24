@@ -52,6 +52,7 @@ struct DBSound {
 
 struct DBCharacter {
     db::Character c;
+    std::string definition;  // data/<dir>/NN.dat for battles; empty: the one next to the model
 };
 
 struct DBStageGeometry {
@@ -59,9 +60,9 @@ struct DBStageGeometry {
 };
 
 struct DBBattle {
-    db::CharDef defs[2];
-    std::vector<db::CharDef> bullets[2];  // by slot: data/bullet/<character id>/<slot>.dat
-    int character_id[2] = {0, 0};
+    db::CharDef defs[4];
+    std::vector<db::CharDef> bullets[4];  // by slot: data/bullet/<character id>/<slot>.dat
+    int character_id[4] = {0, 0, 0, 0};
     db::battle::Battle battle;
 };
 
@@ -147,10 +148,12 @@ bool load_rgba(void* ctx, const std::string& name, std::vector<uint8_t>& rgba, i
 
 // The definition next to a model: data/<name>/00.X -> data/<name>/00.dat. Costume models
 // (data/<name>_B/, the loader's costume flag 2) use the base character's definition.
-bool load_chardef(const db::Source& src, const db::Character& c, db::CharDef& out, std::string* err) {
+bool load_chardef(const db::Source& src, const db::Character& c, db::CharDef& out, std::string* err,
+                  const std::string& definition = {}) {
     std::string path = c.path;
     const size_t dot = path.rfind('.');
     path = (dot == std::string::npos ? path : path.substr(0, dot)) + ".dat";
+    if (!definition.empty()) path = definition;
     const db::Entry* e = src.find(path);
     const size_t slash = path.rfind('/');
     if (!e && slash != std::string::npos && slash >= 2 && (path.compare(slash - 2, 2, "_B") == 0 ||
@@ -595,34 +598,104 @@ DBStageGeometry* db_character_pose_at(const DBCharacter* c, int32_t anim, double
 
 float db_facing_yaw(const float from[3], const float to[3]) { return from && to ? db::facing_yaw(from, to) : 0.f; }
 
-DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter* p2, const float spawn1[3],
-                         const float spawn2[3], char* err, int32_t err_len) {
-    if (!a || !p1 || !p2 || !spawn1 || !spawn2) {
-        set_err(err, err_len, "no archive, character or spawn point");
+DBBattle* db_battle_open_teams(DBArchives* a, const DBCharacter* const* chars, const int32_t* teams,
+                               const float* spawns, int32_t n, char* err, int32_t err_len) {
+    if (!a || !chars || !teams || !spawns || (n != 2 && n != 4)) {
+        set_err(err, err_len, "no archive, characters, teams or spawn points (2 or 4 fighters)");
         return nullptr;
     }
+    for (int32_t i = 0; i < n; ++i)
+        if (!chars[i]) {
+            set_err(err, err_len, "missing character");
+            return nullptr;
+        }
     auto* b = new (std::nothrow) DBBattle;
     if (!b) {
         set_err(err, err_len, "out of memory");
         return nullptr;
     }
-    const DBCharacter* cs[2] = {p1, p2};
-    for (int i = 0; i < 2; ++i) {
+    std::vector<db::battle::Entrant> entrants(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i) {
         std::string msg;
-        if (!load_chardef(a->set, cs[i]->c, b->defs[i], &msg)) {
+        if (!load_chardef(a->set, chars[i]->c, b->defs[i], &msg, chars[i]->definition)) {
             set_err(err, err_len, msg);
             delete b;
             return nullptr;
         }
+        db::battle::Entrant& e = entrants[size_t(i)];
+        e.def = &b->defs[i];
+        e.anim_frames = anim_frames(chars[i]->c);
+        for (int k = 0; k < 3; ++k) e.spawn[k] = spawns[i * 3 + k];
+        e.model = &chars[i]->c;
+        e.team = teams[i];
     }
-    b->battle.start(&b->defs[0], anim_frames(p1->c), spawn1, &b->defs[1], anim_frames(p2->c), spawn2, &p1->c, &p2->c);
-    for (int i = 0; i < 2; ++i) {
+    b->battle.start(std::move(entrants));
+    for (int32_t i = 0; i < n; ++i) {
         b->character_id[i] = b->defs[i].head[3];
         load_bullets(a->set, b->character_id[i], b->bullets[i]);
         b->battle.f[size_t(i)].bullet_defs = &b->bullets[i];
     }
     set_err(err, err_len, "");
     return b;
+}
+
+DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter* p2, const float spawn1[3],
+                         const float spawn2[3], char* err, int32_t err_len) {
+    if (!spawn1 || !spawn2) {
+        set_err(err, err_len, "no spawn point");
+        return nullptr;
+    }
+    const DBCharacter* chars[2] = {p1, p2};
+    const int32_t teams[2] = {0, 1};
+    const float spawns[6] = {spawn1[0], spawn1[1], spawn1[2], spawn2[0], spawn2[1], spawn2[2]};
+    return db_battle_open_teams(a, chars, teams, spawns, 2, err, err_len);
+}
+
+int32_t db_chardef_model(DBArchives* a, const char* def, int32_t def_len, char* out, int32_t len) {
+    if (out && len > 0) out[0] = 0;
+    if (!a || !def || def_len <= 0) return 0;
+    const std::string path(def, size_t(def_len));
+    const db::Entry* e = a->set.find(path);
+    std::vector<uint8_t> bytes;
+    std::string err;
+    db::CharDef d;
+    if (!e || !a->set.read(*e, bytes, &err) || !db::parse_chardef(bytes.data(), bytes.size(), d, &err) ||
+        d.model.empty())
+        return 0;
+    const size_t slash = path.rfind('/');
+    const std::string model = (slash == std::string::npos ? std::string() : path.substr(0, slash + 1)) + d.model;
+    if (out && len > 0) {
+        const size_t n = std::min(model.size(), size_t(len - 1));
+        std::memcpy(out, model.data(), n);
+        out[n] = 0;
+    }
+    return int32_t(model.size());
+}
+
+void db_character_set_definition(DBCharacter* c, const char* def, int32_t def_len) {
+    if (c) c->definition = def && def_len > 0 ? std::string(def, size_t(def_len)) : std::string();
+}
+
+int32_t db_battle_fighter_count(const DBBattle* b) { return b ? int32_t(b->battle.f.size()) : 0; }
+
+int32_t db_battle_target(const DBBattle* b, int32_t i) {
+    return b && i >= 0 && size_t(i) < b->battle.target.size() ? b->battle.target[size_t(i)] : -1;
+}
+
+int32_t db_battle_team(const DBBattle* b, int32_t i) {
+    return b && i >= 0 && size_t(i) < b->battle.team.size() ? b->battle.team[size_t(i)] : -1;
+}
+
+void db_battle_step_pads(DBBattle* b, const DBPad* const* pads, int32_t n) {
+    if (!b) return;
+    std::vector<db::battle::Pad> buf(size_t(std::max(n, 0)));
+    std::vector<const db::battle::Pad*> ptrs(buf.size(), nullptr);
+    for (int32_t i = 0; i < n; ++i)
+        if (pads && pads[i]) {
+            buf[size_t(i)] = {pads[i]->x, pads[i]->y, pads[i]->buttons};
+            ptrs[size_t(i)] = &buf[size_t(i)];
+        }
+    b->battle.step(ptrs);
 }
 
 void db_battle_free(DBBattle* b) { delete b; }
@@ -665,7 +738,7 @@ void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2) {
 }
 
 int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out) {
-    if (!b || !out || i < 0 || i > 1) return 0;
+    if (!b || !out || i < 0 || size_t(i) >= b->battle.f.size()) return 0;
     const db::battle::Fighter& f = b->battle.f[size_t(i)];
     for (int k = 0; k < 3; ++k) out->pos[k] = f.pos[k];
     out->yaw = f.body_yaw();
@@ -682,9 +755,9 @@ int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out) {
 }
 
 int32_t db_battle_camera(const DBBattle* b, int32_t i, DBCamera* out) {
-    if (!b || !out || i < 0 || i > 1) return 0;
+    if (!b || !out || i < 0 || size_t(i) >= b->battle.f.size()) return 0;
     const auto& me = b->battle.f[size_t(i)];
-    const auto& them = b->battle.f[size_t(1 - i)];
+    const auto& them = b->battle.f[size_t(b->battle.target[size_t(i)])];
     db::battle::follow_camera(me.pos, them.pos, 300.f, out->eye, out->target);
     out->fov_y = 3.14159265f / 4;
     out->z_near = 50;
@@ -729,7 +802,7 @@ int32_t db_battle_bullet(const DBBattle* b, int32_t i, DBBulletState* out) {
 
 int32_t db_battle_bullet_model(const DBBattle* b, int32_t owner, int32_t slot, char* out, int32_t len) {
     std::string path;
-    if (b && owner >= 0 && owner < 2 && slot >= 0 && size_t(slot) < b->bullets[owner].size() &&
+    if (b && owner >= 0 && size_t(owner) < b->battle.f.size() && owner < 4 && slot >= 0 && size_t(slot) < b->bullets[owner].size() &&
         !b->bullets[owner][size_t(slot)].model.empty()) {
         char dir[32];
         snprintf(dir, sizeof dir, "data/bullet/%03d/", b->character_id[owner]);
@@ -769,6 +842,12 @@ int32_t db_team_load(DBArchives* a, int32_t team, DBTeam* out) {
 }
 
 const char* db_story_character_dir(int32_t n) { return db::story::character_dir(n); }
+
+int32_t db_battle_frame(const DBBattle* b) { return b ? b->battle.frame : 0; }
+void db_battle_set_time_limit(DBBattle* b, int32_t frames) {
+    if (b) b->battle.time_limit = std::max(0, int(frames));
+}
+int32_t db_battle_time_limit(const DBBattle* b) { return b ? b->battle.time_limit : 0; }
 
 int32_t db_battle_winner(const DBBattle* b) { return b ? b->battle.winner : -1; }
 

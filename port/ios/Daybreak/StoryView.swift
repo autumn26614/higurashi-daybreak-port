@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Story mode: pick a team (data/scenario/team%02d.dat), then play its six episodes in
 /// order, as the game does: the scene before the battle (D%02d-0), the battle on the
-/// episode's stage, the scene after it (D%02d-1). The game's battles are two against two;
-/// here 1P plays the team's first member against the opposing pair's first member.
+/// episode's stage, the scene after it (D%02d-1). Battles are two against two as in the game:
+/// 1P plays the team's first member with the second as a computer partner.
 struct StoryView: View {
     let urls: [URL]
     @State private var book: TalkBook?
@@ -16,9 +16,9 @@ struct StoryView: View {
         return String(cString: p).capitalized
     }
 
-    /// The model the story uses for character n (its 00 variant).
-    static func model(_ n: Int32) -> String? {
-        db_story_character_dir(n).map { "data/" + String(cString: $0) + "/00.X" }
+    /// The definition the story uses for character n (its 00 variant).
+    static func definition(_ n: Int32) -> String? {
+        db_story_character_dir(n).map { "data/" + String(cString: $0) + "/00.dat" }
     }
 
     var body: some View {
@@ -79,16 +79,27 @@ struct StoryRunView: View {
 
     @State private var phase: Phase = .before(0)
 
-    private func episode(_ i: Int) -> (number: Int, stage: Int, opponent: Int32) {
+    private func episode(_ i: Int) -> (number: Int, stage: Int, opponents: [Int32]) {
         withUnsafeBytes(of: team.number) { n in
             withUnsafeBytes(of: team.stage) { s in
                 withUnsafeBytes(of: team.opponents) { o in
                     (Int(n.load(fromByteOffset: i * 4, as: Int32.self)),
                      Int(s.load(fromByteOffset: i * 4, as: Int32.self)),
-                     o.load(fromByteOffset: i * 8, as: Int32.self))
+                     [o.load(fromByteOffset: i * 8, as: Int32.self), o.load(fromByteOffset: i * 8 + 4, as: Int32.self)])
                 }
             }
         }
+    }
+
+    /// The four fighters of episode i: the team, then the opposing pair.
+    private func entrants(_ i: Int) -> [BattleEntrant]? {
+        let ids = [team.members.0, team.members.1] + episode(i).opponents
+        var out: [BattleEntrant] = []
+        for n in ids {
+            guard let def = StoryView.definition(n), let model = book.chardefModel(def) else { return nil }
+            out.append(BattleEntrant(model: model, definition: def))
+        }
+        return out
     }
 
     private func next(after i: Int) -> Phase {
@@ -101,9 +112,8 @@ struct StoryRunView: View {
             case .before(let i):
                 scene(i, part: 0) { phase = .battle(i) }
             case .battle(let i):
-                let e = episode(i)
-                if let p1 = StoryView.model(team.members.0), let p2 = StoryView.model(e.opponent) {
-                    BattleView(urls: urls, preset: BattlePreset(stage: e.stage, p1: p1, p2: p2)) { _ in
+                if let fighters = entrants(i) {
+                    BattleView(urls: urls, preset: BattlePreset(stage: episode(i).stage, fighters: fighters)) { _ in
                         phase = .after(i)
                     }
                     .id("battle\(i)")

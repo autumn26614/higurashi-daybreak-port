@@ -373,6 +373,44 @@ int main() {
         check(fl.blocks(p), "a bullet at the wall is stopped");
     }
 
+    // 2 vs 2: four computer players; each faces an opponent, the round ends when one team
+    // is down, not before.
+    {
+        std::vector<Entrant> e(4);
+        const float spots[4][3] = {{0, 0, 0}, {150, 0, 0}, {0, 0, -500}, {150, 0, -500}};
+        for (int i = 0; i < 4; ++i) {
+            e[size_t(i)].def = &def;
+            e[size_t(i)].anim_frames = frames;
+            for (int k = 0; k < 3; ++k) e[size_t(i)].spawn[k] = spots[i][k];
+            e[size_t(i)].team = i < 2 ? 0 : 1;
+        }
+        Battle b4;
+        b4.start(e);
+        b4.time_limit = 0;  // only knock-outs end this one
+        check(b4.f.size() == 4 && b4.target[0] >= 2 && b4.target[2] < 2, "targets are on the other team");
+        bool early = false;
+        for (int i = 0; i < 20000 && b4.winner < 0; ++i) {
+            b4.step(std::vector<const Pad*>{});
+            const bool team0_down = b4.f[0].hp == 0 && b4.f[1].hp == 0;
+            const bool team1_down = b4.f[2].hp == 0 && b4.f[3].hp == 0;
+            if (b4.winner >= 0 && !team0_down && !team1_down) early = true;
+            for (int k = 0; k < 4; ++k)
+                if (b4.team[size_t(b4.target[size_t(k)])] == b4.team[size_t(k)]) early = true;
+        }
+        const int loser = 1 - b4.winner;
+        check(b4.winner >= 0 && !early && b4.f[size_t(loser * 2)].hp == 0 && b4.f[size_t(loser * 2 + 1)].hp == 0,
+              "a team wins when both opponents are down");
+    }
+
+    // Time-out: the side with more HP wins.
+    {
+        bt.start(&def, frames, a, &def, frames, b);
+        bt.time_limit = 60;
+        bt.f[0].hp = 4000;
+        run(idle, 60);
+        check(bt.winner == 1 && bt.timed_out, "time-out goes to the side with more HP");
+    }
+
     // Battle camera (0x5B1400): fighters 400 apart on flat ground, distance 300.
     {
         const float me[3] = {0, 0, 0}, them[3] = {0, 0, -400};

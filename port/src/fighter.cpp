@@ -874,7 +874,11 @@ void advance(Fighter& f) {
         return;
     }
     const int a = f.anim();
-    const bool loop = f.def && a >= 0 && size_t(a) < f.def->anims.size() && f.def->anims[size_t(a)].loop;
+    // approx.: attack moves (300 and up) run on Rena's state code for every character, which
+    // does not know other characters' step layouts; a looping step there would never end, so
+    // their steps play through. The held guard (390) loops on its own.
+    const bool attack = f.state >= 300 && f.state != 390;
+    const bool loop = !attack && f.def && a >= 0 && size_t(a) < f.def->anims.size() && f.def->anims[size_t(a)].loop;
     if (f.frame + 1 < step_len(f) || loop)
         ++f.frame;
     else if (f.step + 1 < step_count(f))
@@ -1277,7 +1281,7 @@ const FrameRecord& bullet_record(const Fighter& f, int def) {
 
 void Battle::spawn_bullets(int i) {
     Fighter& me = f[size_t(i)];
-    const Fighter& them = f[size_t(1 - i)];
+    const Fighter& them = f[size_t(target[size_t(i)])];
     for (const ShotRequest& q : me.fire) {
         Bullet b;
         b.owner = i;
@@ -1309,15 +1313,18 @@ void Battle::fly_bullets() {
         for (int k = 0; k < 3; ++k) b.pos[k] += b.vel[k];
         ++b.age;
         Fighter& owner = f[size_t(b.owner)];
-        Fighter& d = f[size_t(1 - b.owner)];
         const FrameRecord& rec = bullet_record(owner, b.def);
         const float r = rec.radius > 0 ? float(rec.radius) : 30.f;
         float h;
         const bool ground_hit = !floor.empty() && floor.below(b.pos[0], b.pos[1], b.pos[2], h) && b.pos[1] < h;
-        if (winner < 0 && hittable(d) && touches(d, b.pos, r)) {
+        bool hit = false;
+        for (size_t j = 0; j < f.size() && !hit && winner < 0; ++j) {
+            Fighter& d = f[j];
+            if (team[j] == team[size_t(b.owner)] || !hittable(d) || !touches(d, b.pos, r)) continue;
             apply_hit(owner, d, rec, b.pos, false);
-            continue;
+            hit = true;
         }
+        if (hit) continue;
         if (ground_hit || b.age >= kBulletLife || floor.blocks(b.pos)) continue;
         keep.push_back(b);
     }
@@ -1350,26 +1357,67 @@ void follow_camera(const float me[3], const float them[3], float distance, float
     target[2] = me[2] + d[2];
 }
 
+void Battle::start(std::vector<Entrant> entrants) {
+    *this = Battle{};
+    const size_t n = entrants.size();
+    f.resize(n);
+    team.resize(n);
+    target.assign(n, 0);
+    for (size_t i = 0; i < n; ++i) {
+        Entrant& e = entrants[i];
+        Fighter& me = f[i];
+        me.def = e.def;
+        me.model = e.model;
+        me.anim_frames = std::move(e.anim_frames);
+        for (int k = 0; k < 3; ++k) me.pos[k] = e.spawn[k];
+        me.floor = e.spawn[1];
+        set_state(me, 0);
+        team[i] = e.team;
+    }
+    retarget();
+    for (size_t i = 0; i < n; ++i) {
+        f[i].facing = facing_yaw(f[i].pos, f[size_t(target[i])].pos) / kRad;
+        events.push_back({int(i), SoundEvent::Voice, 7});  // battlestart
+    }
+}
+
 void Battle::start(const CharDef* a, std::vector<int> frames_a, const float spawn_a[3], const CharDef* b,
                    std::vector<int> frames_b, const float spawn_b[3], const Character* model_a,
                    const Character* model_b) {
-    *this = Battle{};
-    const Character* models[2] = {model_a, model_b};
-    const CharDef* defs[2] = {a, b};
-    std::vector<int>* frames[2] = {&frames_a, &frames_b};
-    const float* spawns[2] = {spawn_a, spawn_b};
-    for (int i = 0; i < 2; ++i) {
-        Fighter& f = this->f[size_t(i)];
-        f.def = defs[i];
-        f.model = models[i];
-        f.anim_frames = std::move(*frames[i]);
-        for (int k = 0; k < 3; ++k) f.pos[k] = spawns[i][k];
-        f.floor = spawns[i][1];
-        set_state(f, 0);
+    std::vector<Entrant> e(2);
+    e[0].def = a;
+    e[0].anim_frames = std::move(frames_a);
+    e[0].model = model_a;
+    e[0].team = 0;
+    e[1].def = b;
+    e[1].anim_frames = std::move(frames_b);
+    e[1].model = model_b;
+    e[1].team = 1;
+    for (int k = 0; k < 3; ++k) {
+        e[0].spawn[k] = spawn_a[k];
+        e[1].spawn[k] = spawn_b[k];
     }
-    for (int i = 0; i < 2; ++i) {
-        f[size_t(i)].facing = facing_yaw(f[size_t(i)].pos, f[size_t(1 - i)].pos) / kRad;
-        events.push_back({i, SoundEvent::Voice, 7});  // battlestart
+    start(std::move(e));
+}
+
+// approx.: the game switches targets with a button ("tag" voices); here each fighter keeps
+// its target until it is knocked out, then takes the nearest opponent still standing.
+void Battle::retarget() {
+    for (size_t i = 0; i < f.size(); ++i) {
+        const int cur = target[i];
+        const bool keep = cur >= 0 && size_t(cur) < f.size() && team[size_t(cur)] != team[i] && f[size_t(cur)].hp > 0;
+        if (keep) continue;
+        int best = -1;
+        float best_d = 0;
+        for (size_t j = 0; j < f.size(); ++j) {
+            if (team[j] == team[i]) continue;
+            const float d = dist2(f[i], f[j]) + (f[j].hp > 0 ? 0.f : 1e12f);
+            if (best < 0 || d < best_d) {
+                best = int(j);
+                best_d = d;
+            }
+        }
+        target[i] = best < 0 ? int(i) : best;
     }
 }
 
@@ -1387,59 +1435,100 @@ void Battle::set_floor(Floor fl) {
     }
 }
 
-void Battle::step(const Pad* p1, const Pad* p2) {
-    const Pad* pads[2] = {p1, p2};
-    for (int i = 0; i < 2; ++i) {
-        Fighter& me = f[size_t(i)];
-        if (pads[i] || winner >= 0)
-            me.in.update(winner < 0 ? *pads[i] : Pad{});
+void Battle::step(const std::vector<const Pad*>& pads) {
+    const size_t n = f.size();
+    retarget();
+    for (size_t i = 0; i < n; ++i) {
+        Fighter& me = f[i];
+        const Pad* pad = i < pads.size() ? pads[i] : nullptr;
+        if (pad || winner >= 0)
+            me.in.update(winner < 0 ? *pad : Pad{});
         else
-            cpu_input(me, f[size_t(1 - i)], rng);
+            cpu_input(me, f[size_t(target[i])], rng);
     }
-    for (int i = 0; i < 2; ++i)
-        f[size_t(i)].facing = facing_yaw(f[size_t(i)].pos, f[size_t(1 - i)].pos) / kRad;
+    for (size_t i = 0; i < n; ++i) f[i].facing = facing_yaw(f[i].pos, f[size_t(target[i])].pos) / kRad;
     // Hit-stop: a frozen fighter skips its update, movement and animation.
-    bool frozen[2];
-    for (int i = 0; i < 2; ++i) frozen[i] = f[size_t(i)].freeze > 0;
-    for (int i = 0; i < 2; ++i)
-        if (winner < 0 && !frozen[i]) commands(f[size_t(i)]);
-    for (int i = 0; i < 2; ++i)
-        if (!frozen[i]) update_state(f[size_t(i)], f[size_t(1 - i)]);
-    for (int i = 0; i < 2; ++i)
+    std::vector<char> frozen(n);
+    for (size_t i = 0; i < n; ++i) frozen[i] = f[i].freeze > 0;
+    for (size_t i = 0; i < n; ++i)
+        if (winner < 0 && !frozen[i] && f[i].hp > 0) commands(f[i]);
+    for (size_t i = 0; i < n; ++i)
+        if (!frozen[i]) update_state(f[i], f[size_t(target[i])]);
+    for (size_t i = 0; i < n; ++i)
         if (!frozen[i]) {
-            physics(f[size_t(i)], floor);
-            floor.push_out(f[size_t(i)].pos, 40.f);
+            physics(f[i], floor);
+            floor.push_out(f[i].pos, 40.f);
         }
-    for (int i = 0; i < 2; ++i) spawn_bullets(i);
+    for (size_t i = 0; i < n; ++i) spawn_bullets(int(i));
     fly_bullets();
-    // Keep the two bodies apart.
-    const float dx = f[1].pos[0] - f[0].pos[0], dz = f[1].pos[2] - f[0].pos[2];
-    const float d = std::sqrt(dx * dx + dz * dz), min_d = 70.f;
-    if (d < min_d && std::fabs(f[1].pos[1] - f[0].pos[1]) < 150.f) {
-        const float ux = d > 0.01f ? dx / d : 1.f, uz = d > 0.01f ? dz / d : 0.f, push = (min_d - d) * 0.5f;
-        f[0].pos[0] -= ux * push;
-        f[0].pos[2] -= uz * push;
-        f[1].pos[0] += ux * push;
-        f[1].pos[2] += uz * push;
-    }
-    if (winner < 0) {
-        hits(f[0], f[1]);
-        hits(f[1], f[0]);
-    }
-    for (int i = 0; i < 2; ++i) {
-        Fighter& me = f[size_t(i)];
+    // Keep the bodies apart.
+    for (size_t i = 0; i < n; ++i)
+        for (size_t j = i + 1; j < n; ++j) {
+            Fighter& a = f[i];
+            Fighter& b = f[j];
+            const float dx = b.pos[0] - a.pos[0], dz = b.pos[2] - a.pos[2];
+            const float d = std::sqrt(dx * dx + dz * dz), min_d = 70.f;
+            if (d >= min_d || std::fabs(b.pos[1] - a.pos[1]) >= 150.f) continue;
+            const float ux = d > 0.01f ? dx / d : 1.f, uz = d > 0.01f ? dz / d : 0.f, push = (min_d - d) * 0.5f;
+            a.pos[0] -= ux * push;
+            a.pos[2] -= uz * push;
+            b.pos[0] += ux * push;
+            b.pos[2] += uz * push;
+        }
+    if (winner < 0)
+        for (size_t i = 0; i < n; ++i)
+            for (size_t j = 0; j < n; ++j)
+                if (team[i] != team[j] && f[i].hp > 0) hits(f[i], f[j]);
+    for (size_t i = 0; i < n; ++i) {
+        Fighter& me = f[i];
         if (frozen[i])
             --me.freeze;
         else
             advance(me);
+        // Safety net: moves run on borrowed state code can miss their exit; anything but idle,
+        // walking, the held guard or lying knocked out ends after 20 seconds.
+        if (me.frame > 1200 && me.state != 0 && me.state != 10 && me.state != 390 && me.hp > 0) {
+            if (me.ground)
+                set_state(me, 0);
+            else
+                to_fall(me);
+        }
         // HP drain bar (0x422F60): follows HP down at 200 per frame.
         if (me.hp < me.hp_bar) me.hp_bar = std::max(me.hp, me.hp_bar - 200);
-        if (me.hp == 0 && winner < 0) winner = 1 - i;
         for (SoundEvent e : me.sounds) {
-            e.fighter = i;
+            e.fighter = int(i);
             events.push_back(e);
         }
         me.sounds.clear();
+    }
+    // A team wins when every member of the other team is down (approx.: no respawn stock).
+    if (winner < 0)
+        for (size_t t = 0; t < n; ++t) {
+            bool others_down = true, any_other = false;
+            for (size_t j = 0; j < n; ++j)
+                if (team[j] != team[t]) {
+                    any_other = true;
+                    others_down = others_down && f[j].hp == 0;
+                }
+            if (any_other && others_down) {
+                winner = team[t];
+                break;
+            }
+        }
+    if (winner < 0 && time_limit > 0 && frame + 1 >= time_limit) {
+        int downs[2] = {0, 0}, hp[2] = {0, 0};
+        for (size_t i = 0; i < n; ++i) {
+            const int t = team[i] ? 1 : 0;
+            downs[t] += f[i].hp == 0;
+            hp[t] += f[i].hp;
+        }
+        if (downs[0] != downs[1])
+            winner = downs[0] < downs[1] ? 0 : 1;
+        else if (hp[0] != hp[1])
+            winner = hp[0] > hp[1] ? 0 : 1;
+        else
+            winner = int(rng() % 2);
+        timed_out = true;
     }
     ++frame;
 }

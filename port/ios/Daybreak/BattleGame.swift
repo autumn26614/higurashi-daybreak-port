@@ -11,14 +11,33 @@ final class BattleGame {
     /// Floor triangles of the stage's collision model (0: flat floor at the spawn heights).
     private(set) var floorTriangles = 0
 
-    init(_ a: CharacterModel, _ b: CharacterModel, spawns: [SIMD3<Float>], stage: Int) throws {
-        guard spawns.count >= 2 else { throw ReportError.open("The stage has no 1P / 2P spawn points") }
-        var s1 = [spawns[0].x, spawns[0].y, spawns[0].z], s2 = [spawns[1].x, spawns[1].y, spawns[1].z]
+    /// 2 fighters (1 vs 1) or 4 (2 vs 2: 1P and 2P against 3P and 4P), on the stage's spawns.
+    init(_ fighters: [CharacterModel], spawns: [SIMD3<Float>], stage: Int) throws {
+        let n = fighters.count
+        guard n == 2 || n == 4 else { throw ReportError.open("A battle needs 2 or 4 characters") }
+        guard spawns.count >= n else { throw ReportError.open("The stage has too few spawn points") }
+        let teams: [Int32] = n == 4 ? [0, 0, 1, 1] : [0, 1]
+        let flat = spawns.prefix(n).flatMap { [$0.x, $0.y, $0.z] }
         var err = [CChar](repeating: 0, count: 256)
-        guard let p = a.openBattle(with: b, &s1, &s2, &err) else { throw ReportError.open(message(err)) }
+        guard let p = CharacterModel.openBattle(fighters, teams: teams, spawns: flat, &err) else {
+            throw ReportError.open(message(err))
+        }
         battle = p
-        models = [a, b]
-        floorTriangles = a.setBattleStage(p, stage: stage)
+        models = fighters
+        floorTriangles = fighters[0].setBattleStage(p, stage: stage)
+    }
+
+    var fighterCount: Int { Int(db_battle_fighter_count(battle)) }
+
+    func team(_ i: Int) -> Int { Int(db_battle_team(battle, Int32(i))) }
+
+    /// 1P on `pad`, everyone else computer controlled.
+    func step(pad: DBPad) {
+        var p = pad
+        withUnsafePointer(to: &p) { pp in
+            var pads: [UnsafePointer<DBPad>?] = [pp]
+            db_battle_step_pads(battle, &pads, 1)
+        }
     }
 
     deinit { db_battle_free(battle) }
@@ -68,7 +87,7 @@ final class BattleGame {
         return Array(buf.prefix(n))
     }
 
-    /// nil while both stand.
+    /// The winning team (0 = 1P's), nil while both stand.
     var winner: Int? {
         let w = Int(db_battle_winner(battle))
         return w < 0 ? nil : w
@@ -134,13 +153,14 @@ final class BattleSounds {
     private var cache: [String: DecodedSound] = [:]
     private var missing: Set<String> = []
     private var variants: [String: Int] = [:]
-    private let voices = [SoundPlayer(), SoundPlayer()]
+    private let voices: [SoundPlayer]
     private let effects = [SoundPlayer(), SoundPlayer(), SoundPlayer()]
     private var nextEffect = 0
 
     init(models: [CharacterModel]) {
         self.models = models
         voiceDirs = models.map { BattleSounds.voiceDir(model: $0.name) }
+        voices = models.map { _ in SoundPlayer() }
     }
 
     /// data/rena/00.X and data/rena_B/00.X -> data/voice/rena

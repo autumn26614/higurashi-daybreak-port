@@ -74,8 +74,8 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(BattleSounds.voiceDir(model: "data/rena_B/01.X"), "data/voice/rena")
         XCTAssertEqual(String(cString: db_voice_category(1)), "attackA")
         XCTAssertEqual(StoryView.characterName(2), "Keiichi")
-        XCTAssertEqual(StoryView.model(0), "data/rena/00.X")
-        XCTAssertNil(StoryView.model(99))
+        XCTAssertEqual(StoryView.definition(0), "data/rena/00.dat")
+        XCTAssertNil(StoryView.definition(99))
         // No touches, keys or controller: a neutral pad.
         let pad = BattleControls().pad()
         XCTAssertEqual(pad.x, 0)

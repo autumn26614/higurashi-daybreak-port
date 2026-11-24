@@ -73,6 +73,18 @@ final class TalkBook {
     private let scopedURLs: [URL]
     private var story: OpaquePointer?  // the script last opened with pages(script:)
 
+    /// The model a character definition names ("data/rika/00.dat" -> "data/rika/01.X").
+    func chardefModel(_ def: String) -> String? {
+        var out = [CChar](repeating: 0, count: 128)
+        let b = Array(def.utf8)
+        let n = b.withUnsafeBufferPointer { p in
+            p.baseAddress!.withMemoryRebound(to: CChar.self, capacity: b.count) {
+                db_chardef_model(archives, $0, Int32(b.count), &out, Int32(out.count))
+            }
+        }
+        return n > 0 ? String(cString: out) : nil
+    }
+
     /// Story mode team n (data/scenario/team%02d.dat), or nil.
     func team(_ n: Int) -> DBTeam? {
         var t = DBTeam()

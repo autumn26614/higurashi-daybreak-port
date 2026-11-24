@@ -6,11 +6,17 @@ import simd
 /// battle core (BattleGame: the game's state machine for movement, dashes, jumps and melee)
 /// with 1P on the on-screen controls, a keyboard or a controller and 2P on the computer;
 /// "Pose" shows both playing one animation set with a free camera.
-/// A fixed battle (story mode): the stage and the two models, by archive entry.
+/// A character in a fixed battle: its model and the definition to fight with.
+struct BattleEntrant: Equatable {
+    let model: String       // e.g. "data/rika/01.X"
+    let definition: String  // e.g. "data/rika/00.dat"
+}
+
+/// A fixed battle (story mode): the stage and 2 or 4 characters (1P first; with 4, 1P and
+/// 2P against 3P and 4P).
 struct BattlePreset: Equatable {
     let stage: Int
-    let p1: String  // e.g. "data/keiichi/00.X"
-    let p2: String
+    let fighters: [BattleEntrant]
 }
 
 struct BattleView: View {
@@ -175,12 +181,7 @@ struct BattleView: View {
         if let first = s.first, !s.contains(stage) { stage = first }
         if m.count < 2 { p2 = 0 }
         if let preset {
-            func index(_ entry: String) -> Int? {
-                m.firstIndex { String(decoding: $0, as: UTF8.self).lowercased() == entry.lowercased() }
-            }
             if s.contains(preset.stage) { stage = preset.stage }
-            p1 = index(preset.p1) ?? p1
-            p2 = index(preset.p2) ?? p2
             fight = true
         }
         renderer = try? StageRenderer()
@@ -197,9 +198,18 @@ struct BattleView: View {
         errorText = nil
         game = nil
         let urls = urls, stage = stage
-        let picks = [models[min(p1, models.count - 1)], models[min(p2, models.count - 1)]]
+        let picks: [(entry: [UInt8], definition: String?)] = preset.map { p in
+            p.fighters.map { (entry: Array($0.model.utf8), definition: Optional($0.definition)) }
+        } ?? [(models[min(p1, models.count - 1)], nil), (models[min(p2, models.count - 1)], nil)]
         let result = await Task.detached { () -> Result<(StageScene, [CharacterModel]), Error> in
-            Result { (try StageScene(urls: urls, stage: stage), try picks.map { try CharacterModel(urls: urls, entry: $0) }) }
+            Result {
+                let fighters = try picks.map { pick -> CharacterModel in
+                    let m = try CharacterModel(urls: urls, entry: pick.entry)
+                    if let d = pick.definition { m.setDefinition(d) }
+                    return m
+                }
+                return (try StageScene(urls: urls, stage: stage), fighters)
+            }
         }.value
         loading = false
         switch result {
@@ -221,12 +231,12 @@ struct BattleView: View {
     }
 
     private func restart() {
-        guard let scene, fighters.count == 2 else { return }
+        guard let scene, fighters.count >= 2 else { return }
         winner = nil
         koFrames = 0
         follow = nil
         do {
-            game = try BattleGame(fighters[0], fighters[1], spawns: scene.spawns, stage: scene.stage)
+            game = try BattleGame(fighters, spawns: scene.spawns, stage: scene.stage)
             sounds?.stop()
             sounds = BattleSounds(models: fighters)
             loadBulletModels()
@@ -305,11 +315,11 @@ struct BattleView: View {
     }
 
     private func frame() {
-        guard let scene, let renderer, fighters.count == 2, scene.spawns.count >= 2 else { return }
+        guard let scene, let renderer, fighters.count >= 2, scene.spawns.count >= 2 else { return }
         if fight, let game {
-            game.step(p1: controls.pad(), p2: nil)  // after the knock-out the fighters still move
+            game.step(pad: controls.pad())  // after the knock-out the fighters still move
             sounds?.play(game.takeSounds())
-            let states = [game.fighter(0), game.fighter(1)]
+            let states = (0..<game.fighterCount).map { game.fighter($0) }
             hud = states
             if winner == nil, let w = game.winner { winner = w }
             if let w = winner {
@@ -335,7 +345,7 @@ struct BattleView: View {
         }
         let t = Date().timeIntervalSince(started)
         var batches: [StageBatch] = []
-        for (i, f) in fighters.enumerated() {
+        for (i, f) in fighters.prefix(2).enumerated() {
             let at = scene.spawns[i], other = scene.spawns[1 - i]
             let a = anim < f.animations.count ? anim : -1
             batches += f.pose(anim: a, seconds: t, at: at, facing: other)
@@ -371,23 +381,34 @@ struct BattleHUD: View {
     var body: some View {
         VStack {
             HStack(alignment: .top, spacing: 24) {
-                ForEach(Array(states.enumerated()), id: \.offset) { i, s in
-                    VStack(alignment: i == 0 ? .leading : .trailing, spacing: 3) {
-                        Text((i == 0 ? "1P " : "2P ") + (i < names.count ? names[i] : ""))
-                            .font(.caption.bold()).foregroundStyle(.white)
-                        bar(Double(s.hp) / 10000, drain: Double(s.hp_bar) / 10000, colour: .green, height: 10,
-                            leading: i == 0)
-                        bar(Double(s.stamina) / 1000, drain: nil, colour: .cyan, height: 5, leading: i == 0)
+                // 1 vs 1: 1P left, 2P right; 2 vs 2: 1P and 2P left, 3P and 4P right.
+                ForEach(0..<2, id: \.self) { side in
+                    VStack(alignment: side == 0 ? .leading : .trailing, spacing: 6) {
+                        ForEach(Array(states.enumerated()).filter { sideOf($0.offset) == side }, id: \.offset) { i, s in
+                            gauge(i, s, leading: side == 0)
+                        }
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(i == 0 ? "1P" : "2P") HP \(s.hp)")
-                    .accessibilityIdentifier(i == 0 ? "hud1P" : "hud2P")
                 }
             }
             .padding(10)
             Spacer()
         }
         .allowsHitTesting(false)
+    }
+
+    private func sideOf(_ i: Int) -> Int { states.count == 4 ? i / 2 : i }
+
+    private func gauge(_ i: Int, _ s: DBFighterState, leading: Bool) -> some View {
+        VStack(alignment: leading ? .leading : .trailing, spacing: 3) {
+            Text("\(i + 1)P " + (i < names.count ? names[i] : ""))
+                .font(.caption.bold()).foregroundStyle(.white)
+            bar(Double(s.hp) / 10000, drain: Double(s.hp_bar) / 10000, colour: .green, height: i == 0 ? 10 : 7,
+                leading: leading)
+            bar(Double(s.stamina) / 1000, drain: nil, colour: .cyan, height: 5, leading: leading)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(i + 1)P HP \(s.hp)")
+        .accessibilityIdentifier("hud\(i + 1)P")
     }
 
     private func bar(_ v: Double, drain: Double?, colour: Color, height: CGFloat, leading: Bool) -> some View {

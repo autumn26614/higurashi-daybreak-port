@@ -99,6 +99,30 @@ final class CharacterModel {
         return StageScene.batches(of: g)
     }
 
+    /// Battles with this character use definition `def` (data/<dir>/NN.dat) instead of the
+    /// .dat next to the model (story mode picks characters by definition).
+    func setDefinition(_ def: String) {
+        let b = Array(def.utf8)
+        b.withUnsafeBufferPointer { p in
+            p.baseAddress!.withMemoryRebound(to: CChar.self, capacity: b.count) {
+                db_character_set_definition(character, $0, Int32(b.count))
+            }
+        }
+    }
+
+    /// A battle of 2 or 4 characters on teams (0 / 1); see BattleGame.
+    static func openBattle(_ models: [CharacterModel], teams: [Int32], spawns: [Float],
+                           _ err: inout [CChar]) -> OpaquePointer? {
+        guard let first = models.first else { return nil }
+        var chars: [OpaquePointer?] = models.map { $0.character }
+        var teams = teams, spawns = spawns
+        return chars.withUnsafeMutableBufferPointer { c in
+            c.baseAddress!.withMemoryRebound(to: OpaquePointer?.self, capacity: c.count) { cp in
+                db_battle_open_teams(first.archives, cp, &teams, &spawns, Int32(models.count), &err, Int32(err.count))
+            }
+        }
+    }
+
     /// A battle between this character (1P) and `other` (2P); see BattleGame.
     func openBattle(with other: CharacterModel, _ s1: inout [Float], _ s2: inout [Float],
                     _ err: inout [CChar]) -> OpaquePointer? {

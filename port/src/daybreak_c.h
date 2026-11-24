@@ -178,6 +178,22 @@ typedef struct {
 DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter* p2, const float spawn1[3],
                          const float spawn2[3], char* err, int32_t err_len);
 void db_battle_free(DBBattle* b);
+/* 2 or 4 fighters: chars[i] with team teams[i] (0 or 1; the game's 2 vs 2 is 0, 0, 1, 1) at
+ * spawns[i*3..i*3+2]. The same rules as db_battle_open; each fighter targets the nearest
+ * standing opponent and the battle ends when a team is down. */
+DBBattle* db_battle_open_teams(DBArchives* a, const DBCharacter* const* chars, const int32_t* teams,
+                               const float* spawns, int32_t n, char* err, int32_t err_len);
+int32_t db_battle_fighter_count(const DBBattle* b);
+/* The model a character definition names: data/<dir>/NN.dat -> "data/<dir>/<model>" (e.g.
+ * data/rika/00.dat -> data/rika/01.X). Returns the length, 0 if unreadable. */
+int32_t db_chardef_model(DBArchives* a, const char* def, int32_t def_len, char* out, int32_t len);
+/* Battles with this character use definition `def` (data/<dir>/NN.dat) instead of the .dat
+ * next to its model. */
+void db_character_set_definition(DBCharacter* c, const char* def, int32_t def_len);
+int32_t db_battle_target(const DBBattle* b, int32_t i); /* the opponent fighter i faces */
+int32_t db_battle_team(const DBBattle* b, int32_t i);
+/* One frame; pads[i] NULL (or i >= n): fighter i is computer controlled. */
+void db_battle_step_pads(DBBattle* b, const DBPad* const* pads, int32_t n);
 /* Stands the fighters on stage `stage`'s collision model (data/stageNN/collision.x). Returns
  * the number of floor triangles, 0 if the stage has none (the floor stays flat). */
 int32_t db_battle_set_stage(DBBattle* b, DBArchives* a, int32_t stage);
@@ -206,7 +222,12 @@ int32_t db_battle_bullet(const DBBattle* b, int32_t i, DBBulletState* out);
 /* The .X model of fighter `owner`'s bullet `slot` (e.g. "data/bullet/001/03.X") into out;
  * returns its length, 0 if the slot has no model. */
 int32_t db_battle_bullet_model(const DBBattle* b, int32_t owner, int32_t slot, char* out, int32_t len);
-/* -1 while both stand, else the winner's index. */
+/* Frames of the round so far, and the limit (0: none; default 3 minutes): at the limit the
+ * side with fewer knock-outs, then more HP, wins. */
+int32_t db_battle_frame(const DBBattle* b);
+void db_battle_set_time_limit(DBBattle* b, int32_t frames);
+int32_t db_battle_time_limit(const DBBattle* b);
+/* -1 while both teams stand, else the winning team (in 1 vs 1 the winner's index). */
 int32_t db_battle_winner(const DBBattle* b);
 
 /* ---- Story mode teams (src/story.h) ---------------------------------------------------
