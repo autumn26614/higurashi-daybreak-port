@@ -77,6 +77,10 @@ struct Fighter {
     const FrameRecord* record() const;  // frame record in effect, or nullptr
 };
 
+// The battle camera (0x5B1400): behind `me`, looking at a point between `me` and `them` that
+// moves out as they separate (`distance` is the camera's +0x78, 300 in the game).
+void follow_camera(const float me[3], const float them[3], float distance, float eye[3], float target[3]);
+
 struct Battle {
     std::array<Fighter, 2> f;
     int frame = 0;

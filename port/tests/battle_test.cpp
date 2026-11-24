@@ -268,6 +268,22 @@ int main() {
     for (int i = 0; i < 120; ++i) bt.step(&idle, nullptr);
     check(dist() < 790.f, "computer walks in");
 
+    // Battle camera (0x5B1400): fighters 400 apart on flat ground, distance 300.
+    {
+        const float me[3] = {0, 0, 0}, them[3] = {0, 0, -400};
+        float eye[3], target[3];
+        follow_camera(me, them, 300, eye, target);
+        // d = 200 toward them; e = (0, -120, -200) scaled to 300: (0, -154.3, -257.2).
+        check(std::fabs(eye[2] - 257.2f) < 0.5f && std::fabs(eye[1] - (152.f + 154.3f)) < 0.5f &&
+                  std::fabs(eye[0]) < 1e-3f,
+              "camera behind and above");
+        check(std::fabs(target[2] + 200.f) < 1e-3f && std::fabs(target[1] - (20.f - 80.f)) < 1e-3f,
+              "camera looks between the two");
+        const float far_them[3] = {0, 0, -2000};
+        follow_camera(me, far_them, 300, eye, target);
+        check(std::fabs(target[2] + 2000.f) < 1e-2f && eye[1] <= 200.f + 120.f * 1.5f, "far apart: looks at them");
+    }
+
     // Input record: held counts, release lengths, double taps.
     InputRecord in;
     in.update(Pad{-1, 0, 1});

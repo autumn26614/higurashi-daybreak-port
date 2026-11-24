@@ -846,6 +846,32 @@ const FrameRecord* Fighter::record() const {
     return r;
 }
 
+void follow_camera(const float me[3], const float them[3], float distance, float eye[3], float target[3]) {
+    float d[3] = {them[0] - me[0], them[1] - me[1], them[2] - me[2]};
+    float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    // Close up the look-at point moves in: |d| -> |d|^2 / 800 between 400 and 800, 200 below.
+    if (len < 800.f) {
+        float k;
+        if (len >= 400.f) {
+            k = len / 800.f;
+        } else {
+            k = len > 0.f ? 400.f / len / 2.f : 0.f;
+            len = 400.f;
+        }
+        for (float& v : d) v *= k;
+    }
+    float e[3] = {d[0], d[1] - 120.f, d[2]};
+    const float el = std::sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+    const float a = el > 0.f ? std::min(1.5f, distance / el) : 1.5f;
+    for (float& v : e) v *= a;
+    eye[0] = me[0] - e[0];
+    eye[1] = std::min(len * 0.03f + me[1] + 140.f, me[1] + 200.f) - e[1];
+    eye[2] = me[2] - e[2];
+    target[0] = me[0] + d[0];
+    target[1] = me[1] + d[1] + 20.f - len * 0.2f;
+    target[2] = me[2] + d[2];
+}
+
 void Battle::start(const CharDef* a, std::vector<int> frames_a, const float spawn_a[3], const CharDef* b,
                    std::vector<int> frames_b, const float spawn_b[3], const Character* model_a,
                    const Character* model_b) {

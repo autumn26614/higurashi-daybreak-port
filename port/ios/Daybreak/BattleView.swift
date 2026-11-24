@@ -202,15 +202,6 @@ struct BattleView: View {
         return StageCamera(eye: mid + side * sep * 1.2 + SIMD3(0, sep * 0.35, 0), target: mid)
     }
 
-    /// Behind 1P, looking past them at 2P (the game's own camera, 0x5B1890, is not decoded).
-    static func followCamera(_ me: SIMD3<Float>, _ them: SIMD3<Float>) -> StageCamera {
-        var d = SIMD3<Float>(them.x - me.x, 0, them.z - me.z)
-        d = simd_length(d) > 1 ? simd_normalize(d) : SIMD3(0, 0, -1)
-        let eye = me - d * 420 + SIMD3(0, 230, 0)
-        let target = (me + them) / 2 * 0.5 + me * 0.5 + SIMD3(0, 90, 0)
-        return StageCamera(eye: eye, target: target)
-    }
-
     private func frame() {
         guard let scene, let renderer, fighters.count == 2, scene.spawns.count >= 2 else { return }
         if fight, let game {
@@ -224,14 +215,7 @@ struct BattleView: View {
                 batches += f.pose(anim: a, seconds: s.anim_seconds, at: s.position, yaw: s.yaw)
             }
             renderer.setDynamicBatches(batches)
-            let want = Self.followCamera(states[0].position, states[1].position)
-            if var cam = follow {  // ease toward the wanted view
-                cam.eye += (want.eye - cam.eye) * 0.15
-                cam.target += (want.target - cam.target) * 0.2
-                follow = cam
-            } else {
-                follow = want
-            }
+            follow = game.camera(0)
             renderer.camera = follow
             return
         }

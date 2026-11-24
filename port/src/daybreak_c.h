@@ -181,6 +181,8 @@ void db_battle_free(DBBattle* b);
 /* NULL pad: computer controlled (a placeholder opponent for now). */
 void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2);
 int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out);
+/* The game's battle camera for fighter i (behind it, looking toward the other). */
+int32_t db_battle_camera(const DBBattle* b, int32_t i, DBCamera* out);
 /* -1 while both stand, else the winner's index. */
 int32_t db_battle_winner(const DBBattle* b);
 

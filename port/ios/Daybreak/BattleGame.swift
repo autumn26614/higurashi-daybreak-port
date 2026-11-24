@@ -35,6 +35,12 @@ final class BattleGame {
         return s
     }
 
+    /// The game's battle camera for fighter i (0x5B1400).
+    func camera(_ i: Int) -> StageCamera? {
+        var c = DBCamera()
+        return db_battle_camera(battle, Int32(i), &c) == 1 ? StageCamera(c) : nil
+    }
+
     /// nil while both stand.
     var winner: Int? {
         let w = Int(db_battle_winner(battle))

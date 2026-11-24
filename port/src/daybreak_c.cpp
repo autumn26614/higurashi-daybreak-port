@@ -627,6 +627,17 @@ int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out) {
     return 1;
 }
 
+int32_t db_battle_camera(const DBBattle* b, int32_t i, DBCamera* out) {
+    if (!b || !out || i < 0 || i > 1) return 0;
+    const auto& me = b->battle.f[size_t(i)];
+    const auto& them = b->battle.f[size_t(1 - i)];
+    db::battle::follow_camera(me.pos, them.pos, 300.f, out->eye, out->target);
+    out->fov_y = 3.14159265f / 4;
+    out->z_near = 50;
+    out->z_far = 200000;
+    return 1;
+}
+
 int32_t db_battle_winner(const DBBattle* b) { return b ? b->battle.winner : -1; }
 
 int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out) {
