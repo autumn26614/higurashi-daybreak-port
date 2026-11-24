@@ -29,6 +29,9 @@ final class BattleGame {
 
     var fighterCount: Int { Int(db_battle_fighter_count(battle)) }
 
+    /// Frames of the round so far.
+    var frameCount: Int { Int(db_battle_frame(battle)) }
+
     /// Whole seconds left on the round timer, nil when there is no limit.
     var secondsLeft: Int? {
         let limit = Int(db_battle_time_limit(battle))

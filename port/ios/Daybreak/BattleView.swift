@@ -42,7 +42,7 @@ struct BattleView: View {
     @State private var renderer: StageRenderer?
     @State private var orbit: OrbitCamera?
     @State private var base: StageCamera?
-    @State private var follow: StageCamera?
+
     @State private var started = Date()
     @State private var loading = false
     @State private var errorText: String?
@@ -235,7 +235,6 @@ struct BattleView: View {
         guard let scene, fighters.count >= 2 else { return }
         winner = nil
         koFrames = 0
-        follow = nil
         do {
             game = try BattleGame(fighters, spawns: scene.spawns, stage: scene.stage)
             sounds?.stop()
@@ -321,8 +320,12 @@ struct BattleView: View {
             game.step(pad: controls.pad())  // after the knock-out the fighters still move
             sounds?.play(game.takeSounds())
             let states = (0..<game.fighterCount).map { game.fighter($0) }
-            secondsLeft = game.secondsLeft
-            hud = states
+            // The HUD redraws 15 times a second (the battle itself runs every frame), so
+            // SwiftUI does not rebuild the screen 60 times a second.
+            if hud.count != states.count || game.frameCount % 4 == 0 || game.winner != nil {
+                secondsLeft = game.secondsLeft
+                hud = states
+            }
             if winner == nil, let w = game.winner { winner = w }
             if let w = winner {
                 // Phase 3 of the battle (0x5B3750): 180 frames, then win.ogg / lose.ogg.
@@ -341,8 +344,7 @@ struct BattleView: View {
                 batches += m.pose(anim: m.animations.isEmpty ? -1 : 0, seconds: Double(b.age) * 0.016, at: p, yaw: b.yaw)
             }
             renderer.setDynamicBatches(batches)
-            follow = game.camera(0)
-            renderer.camera = follow
+            renderer.camera = game.camera(0)
             return
         }
         let t = Date().timeIntervalSince(started)
