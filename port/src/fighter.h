@@ -13,8 +13,8 @@
 // Approximated (marked "approx." in the code): no walls yet, the defender is a capsule (its hurt volume is not
 // decoded), a knocked-out fighter stays down, attack moves without any attack record (shots,
 // throws, specials in the character's own code) use a stand-in hit, every character moves
-// with Rena's attack speeds. The computer player is the game's (0x44CAB0). Not yet: shots,
-// specials, items, effects, sounds.
+// with Rena's attack speeds, bullets fly straight (kBulletSpeed). The computer player is the
+// game's (0x44CAB0). Not yet: charged shots, specials, items, effects.
 #pragma once
 #include <array>
 #include <cstdint>
@@ -81,6 +81,25 @@ struct SoundEvent {
     int id = 0;
 };
 
+// A shot the state code fires this frame (0x43F3B0(slot, yaw offset, pitch)).
+struct ShotRequest {
+    int slot = 0;       // bullet definition, data/bullet/<character id>/<slot>.dat
+    float yaw_off = 0;  // degrees, left positive
+    float pitch = 0;    // degrees up
+    bool aim = false;   // pitch toward the opponent instead (clamped to +-30)
+};
+
+// approx.: bullets fly straight at kBulletSpeed for kBulletLife frames (their flight code is
+// in the character's bullet classes, not decoded); they hit with their definition's record.
+constexpr float kBulletSpeed = 35.f;
+constexpr int kBulletLife = 90;
+
+struct Bullet {
+    int owner = 0, def = 0, age = 0;
+    float pos[3]{}, vel[3]{};
+    float yaw = 0;  // radians, for place_character (the model's +x along the flight)
+};
+
 struct Fighter {
     const CharDef* def = nullptr;
     std::vector<int> anim_frames;  // length of each animation set in frames
@@ -102,6 +121,8 @@ struct Fighter {
     int freeze = 0;       // hit-stop frames left
     float knock[2]{};     // +0x4134 / +0x4138: knock-back of the last hit (x100)
     const Character* model = nullptr;  // skeleton for attack spheres, or nullptr
+    const std::vector<CharDef>* bullet_defs = nullptr;  // by slot; nullptr: stand-in bullets
+    std::vector<ShotRequest> fire;
     bool fresh = false;   // the step started this frame: its frame 0 is not skipped
     InputRecord in;
     CpuState ai;
@@ -125,6 +146,7 @@ struct Battle {
     std::vector<SoundEvent> events;  // sounds started since the last take_events()
 
     std::vector<SoundEvent> take_events();
+    std::vector<Bullet> shots;  // in flight
 
     // anim_frames: per character, the frame count of each of its model's animation sets.
     // models: the skeletons for attack spheres (nullptr: spheres in front of the attacker).
@@ -133,6 +155,8 @@ struct Battle {
                const Character* model_b = nullptr);
     // Uses the stage floor from now on and stands both fighters on it.
     void set_floor(Floor fl);
+    void spawn_bullets(int fighter);
+    void fly_bullets();
     // pads[i] == nullptr: that fighter is computer controlled.
     void step(const Pad* p1, const Pad* p2);
 };

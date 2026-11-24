@@ -195,6 +195,17 @@ typedef struct {
 int32_t db_battle_take_sounds(DBBattle* b, DBSoundEvent* out, int32_t max);
 /* Name of voice category id ("attackA", ...; the game's table at 0x644900), or NULL. */
 const char* db_voice_category(int32_t id);
+/* Bullets in flight (approximate flight: straight, see src/fighter.h). */
+typedef struct {
+    float pos[3];
+    float yaw; /* radians, for db_character_pose_at */
+    int32_t owner, slot, age;
+} DBBulletState;
+int32_t db_battle_bullet_count(const DBBattle* b);
+int32_t db_battle_bullet(const DBBattle* b, int32_t i, DBBulletState* out);
+/* The .X model of fighter `owner`'s bullet `slot` (e.g. "data/bullet/001/03.X") into out;
+ * returns its length, 0 if the slot has no model. */
+int32_t db_battle_bullet_model(const DBBattle* b, int32_t owner, int32_t slot, char* out, int32_t len);
 /* -1 while both stand, else the winner's index. */
 int32_t db_battle_winner(const DBBattle* b);
 

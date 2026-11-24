@@ -60,6 +60,8 @@ struct DBStageGeometry {
 
 struct DBBattle {
     db::CharDef defs[2];
+    std::vector<db::CharDef> bullets[2];  // by slot: data/bullet/<character id>/<slot>.dat
+    int character_id[2] = {0, 0};
     db::battle::Battle battle;
 };
 
@@ -167,6 +169,24 @@ bool load_chardef(const db::Source& src, const db::Character& c, db::CharDef& ou
         return false;
     }
     return true;
+}
+
+// A character's bullet definitions (loader 0x58A070): slot n is data/bullet/<id>/<n>.dat;
+// missing slots stay empty.
+void load_bullets(const db::Source& src, int id, std::vector<db::CharDef>& out) {
+    out.clear();
+    if (id <= 0) return;
+    for (int n = 0; n < 40; ++n) {
+        char path[48];
+        snprintf(path, sizeof path, "data/bullet/%03d/%03d.dat", id, n);
+        db::CharDef d;
+        std::vector<uint8_t> bytes;
+        std::string err;
+        if (const db::Entry* e = src.find(path))
+            if (src.read(*e, bytes, &err) && !db::parse_bulletdef(bytes.data(), bytes.size(), d, &err)) d = {};
+        out.push_back(std::move(d));
+    }
+    while (!out.empty() && out.back().moves.empty()) out.pop_back();
 }
 
 // Length of each animation set in game frames (the game advances 0.016 s per frame).
@@ -596,6 +616,11 @@ DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter
         }
     }
     b->battle.start(&b->defs[0], anim_frames(p1->c), spawn1, &b->defs[1], anim_frames(p2->c), spawn2, &p1->c, &p2->c);
+    for (int i = 0; i < 2; ++i) {
+        b->character_id[i] = b->defs[i].head[3];
+        load_bullets(a->set, b->character_id[i], b->bullets[i]);
+        b->battle.f[size_t(i)].bullet_defs = &b->bullets[i];
+    }
     set_err(err, err_len, "");
     return b;
 }
@@ -687,6 +712,35 @@ const char* db_voice_category(int32_t id) {
         "reloadNG",  "reloadOK",  "revival",  "shotA",    "shotB",    "shotC",      "shotFinal",  "spark",
         "specialA",  "specialB",  "tactics",  "tagback",  "tagfront", "tagOK",      "thank"};
     return id >= 0 && size_t(id) < sizeof names / sizeof names[0] ? names[id] : nullptr;
+}
+
+int32_t db_battle_bullet_count(const DBBattle* b) { return b ? int32_t(b->battle.shots.size()) : 0; }
+
+int32_t db_battle_bullet(const DBBattle* b, int32_t i, DBBulletState* out) {
+    if (!b || !out || i < 0 || size_t(i) >= b->battle.shots.size()) return 0;
+    const db::battle::Bullet& s = b->battle.shots[size_t(i)];
+    for (int k = 0; k < 3; ++k) out->pos[k] = s.pos[k];
+    out->yaw = s.yaw;
+    out->owner = s.owner;
+    out->slot = s.def;
+    out->age = s.age;
+    return 1;
+}
+
+int32_t db_battle_bullet_model(const DBBattle* b, int32_t owner, int32_t slot, char* out, int32_t len) {
+    std::string path;
+    if (b && owner >= 0 && owner < 2 && slot >= 0 && size_t(slot) < b->bullets[owner].size() &&
+        !b->bullets[owner][size_t(slot)].model.empty()) {
+        char dir[32];
+        snprintf(dir, sizeof dir, "data/bullet/%03d/", b->character_id[owner]);
+        path = dir + b->bullets[owner][size_t(slot)].model;
+    }
+    if (out && len > 0) {
+        const size_t n = std::min(path.size(), size_t(len - 1));
+        std::memcpy(out, path.data(), n);
+        out[n] = 0;
+    }
+    return int32_t(path.size());
 }
 
 int32_t db_battle_winner(const DBBattle* b) { return b ? b->battle.winner : -1; }

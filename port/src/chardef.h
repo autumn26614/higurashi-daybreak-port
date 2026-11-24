@@ -65,7 +65,7 @@ struct AnimDef {
 
 struct CharDef {
     std::string model;
-    std::array<int32_t, 6> head{};
+    std::array<int32_t, 6> head{};  // [3] = character id (1-28; the bullet folder number)
     std::vector<Move> moves;
     std::vector<AnimDef> anims;
 
@@ -73,5 +73,10 @@ struct CharDef {
 };
 
 bool parse_chardef(const uint8_t* data, size_t size, CharDef& out, std::string* err);
+
+// Bullet definitions, data/bullet/<character id>/NNN.dat (loader 0x58A070; the character id is
+// head[3] of the character definition): the same layout without the six header ints. Move 0's
+// frame records are the bullet's attack spheres; model names an .X in the same folder.
+bool parse_bulletdef(const uint8_t* data, size_t size, CharDef& out, std::string* err);
 
 }  // namespace db

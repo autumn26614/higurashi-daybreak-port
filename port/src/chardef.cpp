@@ -64,12 +64,15 @@ const Move* CharDef::move(int32_t id) const {
     return nullptr;
 }
 
-bool parse_chardef(const uint8_t* data, size_t size, CharDef& out, std::string* err) {
+namespace {
+
+bool parse_def(const uint8_t* data, size_t size, bool head, CharDef& out, std::string* err) {
     out = CharDef{};
     Reader r{data, size};
     r.i32();
     out.model = r.str(0x104);
-    for (auto& h : out.head) h = r.i32();
+    if (head)
+        for (auto& h : out.head) h = r.i32();
     const uint32_t nmoves = r.count(16);
     for (uint32_t i = 0; r.ok && i < nmoves; ++i) {
         Move m;
@@ -124,6 +127,16 @@ bool parse_chardef(const uint8_t* data, size_t size, CharDef& out, std::string* 
         return false;
     }
     return true;
+}
+
+}  // namespace
+
+bool parse_chardef(const uint8_t* data, size_t size, CharDef& out, std::string* err) {
+    return parse_def(data, size, true, out, err);
+}
+
+bool parse_bulletdef(const uint8_t* data, size_t size, CharDef& out, std::string* err) {
+    return parse_def(data, size, false, out, err);
 }
 
 }  // namespace db

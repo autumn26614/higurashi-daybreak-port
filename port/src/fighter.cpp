@@ -381,6 +381,75 @@ void guard(Fighter& f) {
     }
 }
 
+// Shots (0x443EE0 cases 400-409, Rena's numbers for every character): turn to the opponent,
+// fire on frame 12 (13 for the air and back-dash shots) with the shot sound and voice.
+void request_fire(Fighter& f, int slot, float yaw_off, float pitch, bool aim) {
+    se(f, 70);
+    voice(f, 27);  // shotA
+    f.fire.push_back({slot, yaw_off, pitch, aim});
+}
+
+void shot(Fighter& f) {
+    const int s = f.state, st = f.step, fr = f.frame;
+    const bool air = s == 402 || s == 408;
+    if (s == 403 || s == 409) {  // landing after an air shot
+        if (done(f)) {
+            set_state(f, 0);
+            return;
+        }
+        f.gravity = 0;
+        f.extra = 0;
+        f.turn_rate = 0;
+        f.speed = 0;
+        regen(f);
+        return;
+    }
+    if (done(f)) {
+        if (air || !f.ground) return to_fall(f);
+        set_state(f, 0);
+        return;
+    }
+    if (air) {
+        if (f.ground && fr > 0) {
+            set_state(f, s == 402 ? 403 : 409);
+            return;
+        }
+        if (fr == 0) f.extra = 0;
+        if (fr < 13) turn(f, 0, 20);
+        if (fr == (s == 402 ? 13 : 12)) request_fire(f, s == 402 ? 1 : 0, 0, 0, true);
+        if (f.gravity == 0) f.gravity = 0.5f;
+        f.vy -= f.gravity;
+        return;
+    }
+    if (!f.ground) return to_fall(f);
+    if (st == 0 && fr == 0) {
+        f.extra = s == 405 ? -90.f : s == 406 ? 90.f : s == 407 ? 180.f : 0.f;
+        if (s >= 404) f.speed = 10;
+    }
+    if (fr < (s == 400 || s == 401 ? 12 : 10)) turn(f, 0, s == 404 || s == 407 ? 9.f : 20.f);
+    switch (s) {
+    case 400:
+        if (st == 0) f.speed = std::max(0.f, f.speed - 0.5f);
+        break;
+    case 401:
+    case 407:
+        if (st == 0) f.speed = std::max(0.f, f.speed - 0.25f);
+        break;
+    case 404:
+        if (fr > 30) f.speed = std::max(0.f, f.speed - 1.f);
+        break;
+    default:  // 405, 406
+        if (fr > 10) f.speed = std::max(0.f, f.speed - 0.5f);
+        break;
+    }
+    if (s == 407 && fr == 13) {  // two shots spread 75 degrees to each side, 30 up
+        request_fire(f, 4, 75, 30, false);
+        request_fire(f, 9, -75, 30, false);
+    } else if (s != 407 && fr == 12) {
+        request_fire(f, 0, 0, 0, true);
+    }
+}
+
 // Per-state update (0x443EE0). Returns after a state change, like the game.
 void update_state(Fighter& f, const Fighter& o) {
     const int s = f.state, st = f.step, fr = f.frame;
@@ -572,6 +641,7 @@ void update_state(Fighter& f, const Fighter& o) {
     }
     if (s >= 100 && s < 300) return reaction(f);
     if (s >= 390 && s <= 392) return guard(f);
+    if (s >= 400 && s <= 409) return shot(f);
     // Attacks (300 and up); speeds from the Rena class, used for every character for now.
     const bool air = s == 320 || s == 332;
     if (done(f)) {
@@ -754,6 +824,16 @@ void commands(Fighter& f) {
             if (go(300)) return;
         }
     }
+    // Shot button let go within 20 frames (0x44B3F0): the shot that fits the current move.
+    if (f.in.released[2] > 0 && f.in.released[2] < 20) {
+        if (!f.ground) {
+            if (s == 30 && f.step < 2 && go(408)) return;
+            if (go(402)) return;
+        } else {
+            const int fit = s == 20 || s == 10 ? 401 : s == 23 ? 405 : s == 24 ? 406 : s == 27 ? 407 : 400;
+            if (go(fit) || go(400)) return;
+        }
+    }
     if (pressed(f.in, 0) && f.stamina > 0) {
         if ((f.in.x || f.in.y) && !f.ground && go(30)) return;
         if (f.ground && go(40)) return;
@@ -862,8 +942,40 @@ const FrameRecord& stand_in_hit() {
     return r;
 }
 
+// Applies a landed hit of record `rec` from `from` (the attacker, or its bullet).
+void apply_hit(Fighter& a, Fighter& d, const FrameRecord& rec, const float from[3], bool melee) {
+    if (melee) a.freeze = std::clamp(rec.param(36), 0, 30);
+    d.freeze = std::clamp(rec.param(40), 0, 30);
+    // A raised guard (its frames flagged 0x400) blocks a hit from the front: the defender is
+    // pushed back (391), a melee attacker recoils (392; 0x4337F0 returns 2 for it). approx.:
+    // the front test (within 90 degrees of the defender's facing) is not decoded.
+    if (guarding(d)) {
+        const float dx = from[0] - d.pos[0], dz = from[2] - d.pos[2];
+        const float to_attacker = std::atan2(-dx, -dz), diff = std::remainder(to_attacker - d.body_yaw(), 2 * kPi);
+        if (std::fabs(diff) < kPi / 2) {
+            se(d, 51);
+            set_state(d, 391);
+            if (melee) set_state(a, 392);
+            return;
+        }
+    }
+    d.hp = std::max(0, d.hp - std::max(0, rec.damage()));
+    // The record names the reaction on the ground (params 52) and in the air (56), the
+    // knock-back (68 / 72, x100) and the hit-stop of attacker and defender (36 / 40).
+    d.knock[0] = float(rec.param(68));
+    d.knock[1] = float(rec.param(72));
+    if (d.hp == 0) voice(a, 4);  // attackKO
+    int react = d.ground && d.hp > 0 ? rec.param(52) : rec.param(56);
+    if (!move_of(d, react)) react = d.ground && d.hp > 0 ? 100 : 113;
+    d.heading = 0;  // approx.: square up to the attacker
+    d.extra = 0;
+    if (!set_state(d, react)) set_state(d, 100);
+}
+
+bool hittable(const Fighter& d) { return !(d.state >= 118 && d.state <= 128); }
+
 void hits(Fighter& a, Fighter& d) {
-    if (d.state >= 118 && d.state <= 128) return;
+    if (!hittable(d)) return;
     const Move* m = move_of(a, a.state);
     if (!m) return;
     const FrameRecord* rec = a.record();
@@ -872,8 +984,8 @@ void hits(Fighter& a, Fighter& d) {
         serial = a.state * 10000 + a.step * 100 + int(rec - m->steps[size_t(a.step)].frames.data());
     } else {
         const int len = step_len(a);
-        if (a.state < 300 || (a.state >= 390 && a.state <= 394) || a.step != int(m->steps.size()) - 1 || a.frame < len / 4 || a.frame > len / 2 ||
-            has_hit_record(*m))
+        if (a.state < 300 || (a.state >= 390 && a.state <= 394) || a.state >= 400 ||
+            a.step != int(m->steps.size()) - 1 || a.frame < len / 4 || a.frame > len / 2 || has_hit_record(*m))
             return;
         rec = &stand_in_hit();
         serial = a.state * 10000 + a.step * 100 + 99;
@@ -885,32 +997,7 @@ void hits(Fighter& a, Fighter& d) {
     for (int i = 0; i < n && !hit; ++i) hit = touches(d, pts[i], float(rec->radius));
     if (!hit) return;
     a.hit_serial = serial;
-    a.freeze = std::clamp(rec->param(36), 0, 30);
-    d.freeze = std::clamp(rec->param(40), 0, 30);
-    // A raised guard (its frames flagged 0x400) blocks a hit from the front: the defender is
-    // pushed back (391), the attacker recoils (392; 0x4337F0 returns 2 for it). approx.: the
-    // front test (within 90 degrees of the defender's facing) is not decoded.
-    if (guarding(d)) {
-        const float dx = a.pos[0] - d.pos[0], dz = a.pos[2] - d.pos[2];
-        const float to_attacker = std::atan2(-dx, -dz), diff = std::remainder(to_attacker - d.body_yaw(), 2 * kPi);
-        if (std::fabs(diff) < kPi / 2) {
-            se(d, 51);
-            set_state(d, 391);
-            set_state(a, 392);
-            return;
-        }
-    }
-    d.hp = std::max(0, d.hp - std::max(0, rec->damage()));
-    // The record names the reaction on the ground (params 52) and in the air (56), the
-    // knock-back (68 / 72, x100) and the hit-stop of attacker and defender (36 / 40).
-    d.knock[0] = float(rec->param(68));
-    d.knock[1] = float(rec->param(72));
-    if (d.hp == 0) voice(a, 4);  // attackKO
-    int react = d.ground && d.hp > 0 ? rec->param(52) : rec->param(56);
-    if (!move_of(d, react)) react = d.ground && d.hp > 0 ? 100 : 113;
-    d.heading = 0;  // approx.: square up to the attacker
-    d.extra = 0;
-    if (!set_state(d, react)) set_state(d, 100);
+    apply_hit(a, d, *rec, a.pos, true);
 }
 
 // The computer player (vtable +0x14, 0x44CAB0): it writes the input record directly, driven by
@@ -1086,6 +1173,73 @@ bool Floor::below(float x, float y, float z, float& out) const {
     return found;
 }
 
+// The bullet a fighter's slot fires: its definition's first attack record, or a stand-in.
+const FrameRecord& bullet_record(const Fighter& f, int def) {
+    static const FrameRecord fallback = [] {
+        FrameRecord r;
+        r.radius = 30;
+        const int32_t vals[][2] = {{0, 1000}, {52, 102}, {56, 113}, {68, 500}, {72, 1000}};
+        for (const auto& v : vals) std::memcpy(r.params.data() + v[0], &v[1], 4);
+        return r;
+    }();
+    if (f.bullet_defs && def >= 0 && size_t(def) < f.bullet_defs->size()) {
+        const CharDef& b = (*f.bullet_defs)[size_t(def)];
+        if (!b.moves.empty() && !b.moves[0].steps.empty())
+            for (const FrameRecord& r : b.moves[0].steps[0].frames)
+                if (r.damage() > 0) return r;
+    }
+    return fallback;
+}
+
+void Battle::spawn_bullets(int i) {
+    Fighter& me = f[size_t(i)];
+    const Fighter& them = f[size_t(1 - i)];
+    for (const ShotRequest& q : me.fire) {
+        Bullet b;
+        b.owner = i;
+        b.def = q.slot;
+        const float yaw = (me.facing - q.yaw_off) * kRad;
+        const float fx = -std::sin(yaw), fz = -std::cos(yaw);
+        b.pos[0] = me.pos[0] + fx * 50.f;
+        b.pos[1] = me.pos[1] + 90.f;
+        b.pos[2] = me.pos[2] + fz * 50.f;
+        float pitch = q.pitch;
+        if (q.aim) {  // toward the opponent's chest, within +-30 degrees
+            const float dx = them.pos[0] - b.pos[0], dz = them.pos[2] - b.pos[2];
+            const float dy = them.pos[1] + 90.f - b.pos[1];
+            pitch = std::clamp(std::atan2(dy, std::sqrt(dx * dx + dz * dz)) / kRad, -30.f, 30.f);
+        }
+        const float c = std::cos(pitch * kRad);
+        b.vel[0] = fx * c * kBulletSpeed;
+        b.vel[1] = std::sin(pitch * kRad) * kBulletSpeed;
+        b.vel[2] = fz * c * kBulletSpeed;
+        b.yaw = yaw + kPi / 2;  // bullet models point along +x (their extents), place_character turns -z
+        shots.push_back(b);
+    }
+    me.fire.clear();
+}
+
+void Battle::fly_bullets() {
+    std::vector<Bullet> keep;
+    for (Bullet& b : shots) {
+        for (int k = 0; k < 3; ++k) b.pos[k] += b.vel[k];
+        ++b.age;
+        Fighter& owner = f[size_t(b.owner)];
+        Fighter& d = f[size_t(1 - b.owner)];
+        const FrameRecord& rec = bullet_record(owner, b.def);
+        const float r = rec.radius > 0 ? float(rec.radius) : 30.f;
+        float h;
+        const bool ground_hit = !floor.empty() && floor.below(b.pos[0], b.pos[1], b.pos[2], h) && b.pos[1] < h;
+        if (winner < 0 && hittable(d) && touches(d, b.pos, r)) {
+            apply_hit(owner, d, rec, b.pos, false);
+            continue;
+        }
+        if (ground_hit || b.age >= kBulletLife) continue;
+        keep.push_back(b);
+    }
+    shots.swap(keep);
+}
+
 void follow_camera(const float me[3], const float them[3], float distance, float eye[3], float target[3]) {
     float d[3] = {them[0] - me[0], them[1] - me[1], them[2] - me[2]};
     float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
@@ -1169,6 +1323,8 @@ void Battle::step(const Pad* p1, const Pad* p2) {
         if (!frozen[i]) update_state(f[size_t(i)], f[size_t(1 - i)]);
     for (int i = 0; i < 2; ++i)
         if (!frozen[i]) physics(f[size_t(i)], floor);
+    for (int i = 0; i < 2; ++i) spawn_bullets(i);
+    fly_bullets();
     // Keep the two bodies apart.
     const float dx = f[1].pos[0] - f[0].pos[0], dz = f[1].pos[2] - f[0].pos[2];
     const float d = std::sqrt(dx * dx + dz * dz), min_d = 70.f;

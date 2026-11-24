@@ -45,6 +45,22 @@ final class BattleGame {
         return db_battle_camera(battle, Int32(i), &c) == 1 ? StageCamera(c) : nil
     }
 
+    /// Bullets in flight.
+    func bullets() -> [DBBulletState] {
+        (0..<db_battle_bullet_count(battle)).map { i in
+            var s = DBBulletState()
+            db_battle_bullet(battle, i, &s)
+            return s
+        }
+    }
+
+    /// The archive entry of a bullet's model ("data/bullet/001/03.X"), or nil.
+    func bulletModel(owner: Int, slot: Int) -> String? {
+        var buf = [CChar](repeating: 0, count: 128)
+        let n = db_battle_bullet_model(battle, Int32(owner), Int32(slot), &buf, Int32(buf.count))
+        return n > 0 ? String(cString: buf) : nil
+    }
+
     /// Voices and sound effects the fighters started since the last call.
     func takeSounds() -> [DBSoundEvent] {
         var buf = [DBSoundEvent](repeating: DBSoundEvent(), count: 32)

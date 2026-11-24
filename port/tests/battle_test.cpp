@@ -137,6 +137,7 @@ std::vector<MoveSpec> moves() {
         {120, 0, 99, {{8, {shut}}}},
         {124, 0, 99, {{8, {shut}}, {8, {shut}}, {8, {shut}}}},
         {128, 0, 99, {{8, {shut}}}},
+        {400, 40, 99, {{9, {shut, {15, 0x100}}}}},
         {390, 0, 150, {{10, {shut}}, {10, {{0, 0x400}}}, {10, {shut}}}},
         {391, 0, 150, {{10, {shut}}, {10, {shut}}}},
         {392, 0, 150, {{10, {shut}}, {10, {shut}}}},
@@ -302,6 +303,28 @@ int main() {
     check(bt.f[1].stamina < 1000, "holding the guard costs stamina");
     for (int i = 0; i < 80; ++i) bt.step(&idle, &idle);
     check(bt.f[1].state == 0, "guard lowered");
+
+    // Shot: the shot button let go within 20 frames fires on frame 12; with no bullet files
+    // the stand-in bullet (1000 damage) flies straight at the opponent and hits.
+    {
+        const float mid[3] = {0, 0, -600};
+        bt.start(&def, frames, a, &def, frames, mid);
+        bt.take_events();
+        const Pad tap{0, 0, 4};
+        run(tap, 2);
+        run(idle, 1);
+        check(bt.f[0].state == 400, "shot button -> 400");
+        bool flew = false;
+        for (int i = 0; i < 60 && bt.f[1].hp == 10000; ++i) {
+            run(idle, 1);
+            if (!bt.shots.empty()) flew = true;
+        }
+        check(flew && bt.f[1].hp == 9000 && bt.f[1].state == 100, "bullet flies and hits");
+        check(bt.shots.empty(), "bullet gone after the hit");
+        bool shot_voice = false;
+        for (const auto& e : bt.take_events()) shot_voice = shot_voice || (e.kind == SoundEvent::Voice && e.id == 27);
+        check(shot_voice, "shotA voice");
+    }
 
     // Stage floor: a platform at y = 100 (z > -200) above ground at y = 0. Walking forward off
     // the edge drops more than 20, so the fighter falls (43) and lands (44) on the ground.

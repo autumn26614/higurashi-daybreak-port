@@ -31,6 +31,7 @@ struct BattleView: View {
     @StateObject private var controls = BattleControls()
     @State private var music = SoundPlayer()
     @State private var sounds: BattleSounds?
+    @State private var bulletModels: [String: CharacterModel] = [:]  // by archive entry
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
 
     /// Character models only: data/<name>/0N.X outside the item / effect folders.
@@ -198,12 +199,37 @@ struct BattleView: View {
             game = try BattleGame(fighters[0], fighters[1], spawns: scene.spawns, stage: scene.stage)
             sounds?.stop()
             sounds = BattleSounds(models: fighters)
+            loadBulletModels()
         } catch {
             game = nil
             if fight { errorText = error.localizedDescription }
         }
         frame()
         playBattleMusic()
+    }
+
+    /// The fighters' bullet models (slots 0-9 cover the shots), loaded off the main thread.
+    private func loadBulletModels() {
+        guard let game else { return }
+        var entries = Set<String>()
+        for owner in 0..<2 {
+            for slot in 0..<10 {
+                if let e = game.bulletModel(owner: owner, slot: slot), bulletModels[e] == nil { entries.insert(e) }
+            }
+        }
+        let urls = urls
+        Task.detached {
+            var loaded: [String: CharacterModel] = [:]
+            for e in entries {
+                if let m = try? CharacterModel(urls: urls, entry: Array(e.utf8)) { loaded[e] = m }
+            }
+            await MainActor.run {
+                for (e, m) in loaded {
+                    bulletModels[e] = m
+                    renderer?.addTextures(m.textures)
+                }
+            }
+        }
     }
 
     /// The battle BGM, data/bgm/%02d.ogg (0x5B436B). In versus the game picks it at random or
@@ -265,6 +291,12 @@ struct BattleView: View {
             for (f, s) in zip(fighters, states) {
                 let a = Int(s.anim) < f.animations.count ? Int(s.anim) : -1
                 batches += f.pose(anim: a, seconds: s.anim_seconds, at: s.position, yaw: s.yaw)
+            }
+            for b in game.bullets() {
+                guard let entry = game.bulletModel(owner: Int(b.owner), slot: Int(b.slot)),
+                      let m = bulletModels[entry] else { continue }
+                let p = SIMD3(b.pos.0, b.pos.1, b.pos.2)
+                batches += m.pose(anim: m.animations.isEmpty ? -1 : 0, seconds: Double(b.age) * 0.016, at: p, yaw: b.yaw)
             }
             renderer.setDynamicBatches(batches)
             follow = game.camera(0)
