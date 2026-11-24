@@ -317,6 +317,8 @@ int main(int argc, char** argv) {
               "team file");
         check(!db::story::parse_team(t.data(), 20, team), "short team file fails");
         check(std::string(db::story::character_dir(0)) == "rena" &&
+                  std::string(db::story::character_dir(5)) == "shion" &&
+                  std::string(db::story::character_dir(9)) == "akasaka" &&
                   std::string(db::story::character_dir(13)) == "akane" && !db::story::character_dir(14),
               "story character folders");
     }

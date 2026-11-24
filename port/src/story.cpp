@@ -181,8 +181,10 @@ bool parse_team(const uint8_t* data, size_t size, Team& out) {
 }
 
 const char* character_dir(int n) {
-    static const char* const dirs[] = {"rena",   "mion",    "keiichi", "shion",  "rika", "satoko", "ohishi",
-                                       "akasaka", "takano", "tomitake", "irie",  "chie", "kasai",  "akane"};
+    // Confirmed by the team select's name plates (data/teamselect/p00: team i at column i / 3,
+    // row i % 3) against the team files' member numbers.
+    static const char* const dirs[] = {"rena",   "mion",     "keiichi", "satoko",  "rika", "shion", "tomitake",
+                                       "takano", "ohishi",  "akasaka", "irie",    "chie", "kasai", "akane"};
     return n >= 0 && size_t(n) < sizeof dirs / sizeof dirs[0] ? dirs[n] : nullptr;
 }
 

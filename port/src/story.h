@@ -81,8 +81,8 @@ int settle_frames(const Scene& s);
 // episodes - the opposing pair, the stage (twice) and the episode number N, whose scenes are
 // data/scenario/D%02d-0.txt (before the battle) and D%02d-1.txt (after) - and the ending
 // movie name at 0x80. Characters are numbered as the player classes (factory 0x5C8140):
-// 0 Rena, 1 Mion, 2 Keiichi, 3 Shion, 4 Rika, 5 Satoko, 6 Ohishi, 7 Akasaka, 8 Takano,
-// 9 Tomitake, 10 Irie, 11 Chie, 12 Kasai, 13 Akane (see character_dir).
+// 0 Rena, 1 Mion, 2 Keiichi, 3 Satoko, 4 Rika, 5 Shion, 6 Tomitake, 7 Takano, 8 Ohishi,
+// 9 Akasaka, 10 Irie, 11 Chie, 12 Kasai, 13 Akane (see character_dir).
 struct Episode {
     int opponents[2] = {0, 0};
     int stage = 0, stage2 = 0;
