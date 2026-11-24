@@ -6,6 +6,7 @@
 !/.gitattributes
 !/.github/
 !/port/
+!/recomp/
 # To also publish the reverse-engineering notes, uncomment:
 # !/analysis/
 
@@ -18,6 +19,8 @@
 
 # Build output and generated projects
 /port/build/
+/recomp/gen/
+/recomp/build/
 /port/ios/*.xcodeproj/
 /port/ios/Daybreak/Info.plist
 DerivedData/

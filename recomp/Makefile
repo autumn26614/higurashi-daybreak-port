@@ -1,0 +1,45 @@
+# Static recompilation of daybreak.exe (see README.md).
+#   make GAME=<folder with daybreak.exe>        translate, then build the host program
+#   make run GAME=...                            run it headless
+GAME ?= ../Higurashi Daybreak (Japan)/data
+GEN ?= gen
+BUILD ?= build
+PYTHON ?= python3 -I
+CC ?= gcc
+CXX ?= g++
+OPT ?= -O1
+CFLAGS += $(OPT) -g -w -Iruntime -I$(GEN)
+CXXFLAGS += $(OPT) -g -std=c++17 -Wall -Wextra -Wno-unused-parameter -Iruntime
+
+RUNTIME := $(wildcard runtime/*.cpp)
+RT_OBJ := $(RUNTIME:runtime/%.cpp=$(BUILD)/rt/%.o)
+
+all: $(GEN)/stamp
+	$(MAKE) link
+
+$(GEN)/stamp: tools/lift.py tools/discover.py tools/pe.py
+	$(PYTHON) tools/lift.py "$(GAME)/daybreak.exe" $(GEN)
+	touch $@
+
+GEN_C = $(wildcard $(GEN)/F_*.c)
+GEN_OBJ = $(GEN_C:$(GEN)/%.c=$(BUILD)/gen/%.o)
+
+$(BUILD)/gen/%.o: $(GEN)/%.c runtime/x86.h $(GEN)/stamp
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/rt/%.o: runtime/%.cpp $(wildcard runtime/*.h)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+
+link: $(GEN_OBJ) $(RT_OBJ)
+	$(CXX) $(GEN_OBJ) $(RT_OBJ) -o $(BUILD)/daybreak-recomp -lpthread -lm
+
+run: all
+	$(BUILD)/daybreak-recomp "$(GAME)"
+
+clean:
+	rm -rf $(BUILD) $(GEN)
+
+.PHONY: all link run clean

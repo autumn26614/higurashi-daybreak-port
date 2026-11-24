@@ -14,11 +14,12 @@ final class FixtureUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
-    /// Swipes up until an element containing `text` exists, or gives up after `swipes`.
-    private func scrollTo(_ text: String, in app: XCUIApplication, swipes: Int = 8) -> Bool {
+    /// Swipes up until an element containing `text` exists, or gives up after `swipes`
+    /// (waiting a little before each swipe, for rows still being loaded).
+    private func scrollTo(_ text: String, in app: XCUIApplication, swipes: Int = 8, wait: TimeInterval = 3) -> Bool {
         let target = element(containing: text, in: app)
         for _ in 0..<swipes {
-            if target.exists { return true }
+            if target.waitForExistence(timeout: wait) { return true }
             app.swipeUp()
         }
         return target.exists
@@ -42,8 +43,8 @@ final class FixtureUITests: XCTestCase {
         app.launchArguments = ["-useBundledFixture"]
         app.launch()
 
-        let row = element(containing: "1 meshes / 1 tris", in: app)
-        XCTAssertTrue(row.waitForExistence(timeout: 60), "mesh/triangle row never appeared on screen")
+        XCTAssertTrue(app.descendants(matching: .any)["searchOrder"].waitForExistence(timeout: 60), "the fixture never loaded")
+        XCTAssertTrue(scrollTo("1 meshes / 1 tris", in: app, wait: 10), "mesh/triangle row never appeared on screen")
         XCTAssertFalse(app.staticTexts["error"].exists, "app reported an error")
         assertNoFailedChecks(app, "top of list")
         screenshot(app, "fixture-results")
@@ -89,9 +90,9 @@ final class FixtureUITests: XCTestCase {
         app.launchArguments = ["-useBundledFixture", "-kai"]
         app.launch()
 
-        let row = element(containing: "1 meshes / 2 tris", in: app)
-        XCTAssertTrue(row.waitForExistence(timeout: 60), "overlay mesh (2 tris) never appeared on screen")
+        XCTAssertTrue(app.descendants(matching: .any)["searchOrder"].waitForExistence(timeout: 60), "the fixture never loaded")
         XCTAssertTrue(element(containing: "fixture-overlay.dat → fixture.dat", in: app).exists, "search order missing")
+        XCTAssertTrue(scrollTo("1 meshes / 2 tris", in: app, wait: 10), "overlay mesh (2 tris) never appeared on screen")
         XCTAssertFalse(app.staticTexts["error"].exists, "app reported an error")
         assertNoFailedChecks(app, "top of list")
         screenshot(app, "fixture-kai-results")
