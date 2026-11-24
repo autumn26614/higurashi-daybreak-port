@@ -21,6 +21,7 @@
 #include "identify.h"
 #include "scenario.h"
 #include "story.h"
+#include "xfile.h"
 #include "talk.h"
 
 #include <map>
@@ -600,6 +601,34 @@ DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter
 }
 
 void db_battle_free(DBBattle* b) { delete b; }
+
+int32_t db_battle_set_stage(DBBattle* b, DBArchives* a, int32_t stage) {
+    if (!b || !a) return 0;
+    char path[64];
+    snprintf(path, sizeof path, "data/stage%02d/collision.x", int(stage));
+    db::XFile x;
+    std::string err;
+    if (!db::load_x(a->set, path, x, &err)) return 0;
+    db::StageGeometry g;
+    char dir[32];
+    snprintf(dir, sizeof dir, "data/stage%02d/", int(stage));
+    db::append_x_batches(a->set, x, dir, 0, g);
+    db::battle::Floor fl;
+    for (const auto& batch : g.batches)
+        for (size_t i = 0; i + 2 < batch.indices.size(); i += 3) {
+            const uint32_t v0 = batch.indices[i];
+            // A vertex colour with blue < 0x80 marks a surface that is not floor (0x433DA0).
+            if (batch.has_colors && size_t(v0) * 4 + 2 < batch.colors.size() && batch.colors[size_t(v0) * 4 + 2] < 0x80)
+                continue;
+            for (int k = 0; k < 3; ++k) {
+                const size_t v = batch.indices[i + size_t(k)];
+                for (int c = 0; c < 3; ++c) fl.tris.push_back(batch.positions[v * 3 + size_t(c)]);
+            }
+        }
+    const int32_t n = int32_t(fl.tris.size() / 9);
+    if (n > 0) b->battle.set_floor(std::move(fl));
+    return n;
+}
 
 void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2) {
     if (!b) return;

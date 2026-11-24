@@ -105,6 +105,11 @@ final class CharacterModel {
         db_battle_open(archives, character, other.character, &s1, &s2, &err, Int32(err.count))
     }
 
+    /// Stands a battle's fighters on stage `stage`'s collision floor (read from these archives).
+    func setBattleStage(_ battle: OpaquePointer, stage: Int) -> Int {
+        Int(db_battle_set_stage(battle, archives, Int32(stage)))
+    }
+
     /// CPU reference frame of a pose (for devices without Metal).
     func renderReference(anim: Int, seconds: Double, camera: StageCamera, width: Int, height: Int) -> [UInt8] {
         guard let g = db_character_pose(character, Int32(anim), seconds) else { return [] }

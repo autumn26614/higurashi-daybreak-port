@@ -178,6 +178,9 @@ typedef struct {
 DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter* p2, const float spawn1[3],
                          const float spawn2[3], char* err, int32_t err_len);
 void db_battle_free(DBBattle* b);
+/* Stands the fighters on stage `stage`'s collision model (data/stageNN/collision.x). Returns
+ * the number of floor triangles, 0 if the stage has none (the floor stays flat). */
+int32_t db_battle_set_stage(DBBattle* b, DBArchives* a, int32_t stage);
 /* NULL pad: computer controlled (a placeholder opponent for now). */
 void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2);
 int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out);

@@ -268,6 +268,33 @@ int main() {
     for (int i = 0; i < 120; ++i) bt.step(&idle, nullptr);
     check(dist() < 790.f, "computer walks in");
 
+    // Stage floor: a platform at y = 100 (z > -200) above ground at y = 0. Walking forward off
+    // the edge drops more than 20, so the fighter falls (43) and lands (44) on the ground.
+    {
+        Floor fl;
+        auto quad = [&](float x0, float x1, float z0, float z1, float y) {
+            const float q[] = {x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z0, x1, y, z1, x0, y, z1};
+            fl.tris.insert(fl.tris.end(), q, q + 18);
+        };
+        quad(-1000, 1000, -200, 1000, 100);
+        quad(-1000, 1000, -3000, -200, 0);
+        float h = -1;
+        check(fl.below(0, 100, 0, h) && h == 100.f, "floor under the platform");
+        check(fl.below(0, 0, -500, h) && h == 0.f, "floor under the ground");
+        check(!fl.below(5000, 0, 0, h), "no floor off the map");
+        const float top[3] = {0, 0, 0}, low[3] = {0, 0, -1500};
+        bt.start(&def, frames, top, &def, frames, low);
+        bt.set_floor(fl);
+        check(bt.f[0].pos[1] == 100.f && bt.f[1].pos[1] == 0.f, "spawns stand on the floor");
+        std::vector<int> seen;
+        for (int i = 0; i < 90; ++i) {
+            run(Pad{0, -1, 0}, 1);
+            if (seen.empty() || seen.back() != bt.f[0].state) seen.push_back(bt.f[0].state);
+        }
+        const bool fell = std::find(seen.begin(), seen.end(), 43) != seen.end();
+        check(fell && bt.f[0].pos[1] == 0.f && bt.f[0].ground, "walks off the ledge, falls, lands");
+    }
+
     // Battle camera (0x5B1400): fighters 400 apart on flat ground, distance 300.
     {
         const float me[3] = {0, 0, 0}, them[3] = {0, 0, -400};

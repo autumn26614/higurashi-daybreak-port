@@ -658,18 +658,29 @@ void commands(Fighter& f) {
     }
 }
 
-void physics(Fighter& f) {
+// Movement and floor (0x4339C0): airborne, a fall that would pass the floor lands on it; on
+// the ground the fighter follows the floor down slopes and leaves it when rising or when the
+// floor drops away by more than 20 (a ledge).
+void physics(Fighter& f, const Floor& floor) {
     const float yaw = (f.facing - (f.heading + f.extra)) * kRad;
     f.pos[0] += -std::sin(yaw) * f.speed;
     f.pos[2] += -std::cos(yaw) * f.speed;
-    f.pos[1] += f.vy;
+    float h;
+    if (!floor.empty() && floor.below(f.pos[0], f.pos[1], f.pos[2], h)) f.floor = h;  // else keep the last one
+    const float gap = f.pos[1] - f.floor;
     if (f.ground) {
-        if (f.vy > 0) f.ground = false;
-    } else if (f.pos[1] <= f.floor) {
+        if (f.vy > 0 || gap + f.vy > 20.f) {
+            f.ground = false;
+            f.pos[1] += f.vy;
+        } else {
+            f.pos[1] = f.floor;
+        }
+    } else if (gap + f.vy <= 0) {
         f.pos[1] = f.floor;
         f.ground = true;
+    } else {
+        f.pos[1] += f.vy;
     }
-    if (f.ground) f.pos[1] = f.floor;
 }
 
 // Steps through the animation; a looping animation repeats its step, otherwise the next
@@ -846,6 +857,28 @@ const FrameRecord* Fighter::record() const {
     return r;
 }
 
+bool Floor::below(float x, float y, float z, float& out) const {
+    const float top = y + 50.f;
+    bool found = false;
+    for (size_t t = 0; t + 8 < tris.size(); t += 9) {
+        const float* a = &tris[t];
+        const float* b = a + 3;
+        const float* c = a + 6;
+        // Point in triangle (x/z), barycentric.
+        const float d = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+        if (std::fabs(d) < 1e-6f) continue;  // vertical
+        const float u = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / d;
+        const float v = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / d;
+        if (u < 0 || v < 0 || u + v > 1) continue;
+        const float hy = u * a[1] + v * b[1] + (1 - u - v) * c[1];
+        if (hy <= top && (!found || hy > out)) {
+            out = hy;
+            found = true;
+        }
+    }
+    return found;
+}
+
 void follow_camera(const float me[3], const float them[3], float distance, float eye[3], float target[3]) {
     float d[3] = {them[0] - me[0], them[1] - me[1], them[2] - me[2]};
     float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
@@ -893,6 +926,14 @@ void Battle::start(const CharDef* a, std::vector<int> frames_a, const float spaw
         f[size_t(i)].facing = facing_yaw(f[size_t(i)].pos, f[size_t(1 - i)].pos) / kRad;
 }
 
+void Battle::set_floor(Floor fl) {
+    floor = std::move(fl);
+    for (Fighter& me : f) {
+        float h;
+        if (floor.below(me.pos[0], me.pos[1] + 1000.f, me.pos[2], h)) me.floor = me.pos[1] = h;
+    }
+}
+
 void Battle::step(const Pad* p1, const Pad* p2) {
     const Pad* pads[2] = {p1, p2};
     for (int i = 0; i < 2; ++i) {
@@ -910,7 +951,7 @@ void Battle::step(const Pad* p1, const Pad* p2) {
     for (int i = 0; i < 2; ++i)
         if (!frozen[i]) update_state(f[size_t(i)], f[size_t(1 - i)]);
     for (int i = 0; i < 2; ++i)
-        if (!frozen[i]) physics(f[size_t(i)]);
+        if (!frozen[i]) physics(f[size_t(i)], floor);
     // Keep the two bodies apart.
     const float dx = f[1].pos[0] - f[0].pos[0], dz = f[1].pos[2] - f[0].pos[2];
     const float d = std::sqrt(dx * dx + dz * dz), min_d = 70.f;

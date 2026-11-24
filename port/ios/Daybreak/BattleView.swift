@@ -182,7 +182,7 @@ struct BattleView: View {
         winner = nil
         follow = nil
         do {
-            game = try BattleGame(fighters[0], fighters[1], spawns: scene.spawns)
+            game = try BattleGame(fighters[0], fighters[1], spawns: scene.spawns, stage: scene.stage)
         } catch {
             game = nil
             if fight { errorText = error.localizedDescription }

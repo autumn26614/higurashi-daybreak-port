@@ -8,13 +8,17 @@ final class BattleGame {
     private let battle: OpaquePointer
     private let models: [CharacterModel]  // the battle reads their skeletons: keep them alive
 
-    init(_ a: CharacterModel, _ b: CharacterModel, spawns: [SIMD3<Float>]) throws {
+    /// Floor triangles of the stage's collision model (0: flat floor at the spawn heights).
+    private(set) var floorTriangles = 0
+
+    init(_ a: CharacterModel, _ b: CharacterModel, spawns: [SIMD3<Float>], stage: Int) throws {
         guard spawns.count >= 2 else { throw ReportError.open("The stage has no 1P / 2P spawn points") }
         var s1 = [spawns[0].x, spawns[0].y, spawns[0].z], s2 = [spawns[1].x, spawns[1].y, spawns[1].z]
         var err = [CChar](repeating: 0, count: 256)
         guard let p = a.openBattle(with: b, &s1, &s2, &err) else { throw ReportError.open(message(err)) }
         battle = p
         models = [a, b]
+        floorTriangles = a.setBattleStage(p, stage: stage)
     }
 
     deinit { db_battle_free(battle) }

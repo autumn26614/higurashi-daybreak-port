@@ -9,8 +9,8 @@
 // the attack record's damage, hit-stop, knock-back and reaction state (ground / air), and the
 // common reaction states of 0x42F1C0 (stagger, launch, down, get up, roll). Attack spheres
 // sit on the animated bone when the character model is given.
-// Approximated (marked "approx." in the code): the floor is the spawn height (the game ray
-// casts the stage's collision frames), the defender is a capsule (its hurt volume is not
+// The floor follows the stage's collision model (slopes, ledges) when one is given.
+// Approximated (marked "approx." in the code): no walls yet, the defender is a capsule (its hurt volume is not
 // decoded), a knocked-out fighter stays down, attacks whose hits come from attack objects
 // (most characters except Rena, Keiichi, Akane, Rika) use a stand-in hit, every character
 // moves with Rena's attack speeds, and the computer opponent is a simple walker, not the
@@ -48,12 +48,22 @@ struct InputRecord {
     void update(const Pad& p);
 };
 
+// The stage's character collision model (data/stageNN/collision.x) as world triangles.
+// The game ray casts it straight down from 50 above the feet (0x433DA0); a triangle whose
+// vertex colour has blue < 0x80 is not floor (the game flags it as a special surface).
+struct Floor {
+    std::vector<float> tris;  // 9 floats per triangle
+    // Highest floor at or below y + 50 under (x, z); false if there is none.
+    bool below(float x, float y, float z, float& out) const;
+    bool empty() const { return tris.empty(); }
+};
+
 struct Fighter {
     const CharDef* def = nullptr;
     std::vector<int> anim_frames;  // length of each animation set in frames
 
     float pos[3]{};
-    float floor = 0;      // approx.: spawn height
+    float floor = 0;      // floor height under the fighter (spawn height until a floor is set)
     float vy = 0;         // +0x40
     float speed = 0;      // +0x54
     float gravity = 0;    // +0x58
@@ -85,12 +95,15 @@ struct Battle {
     std::array<Fighter, 2> f;
     int frame = 0;
     int winner = -1;  // set when a fighter is knocked out
+    Floor floor;      // empty: flat floor at each spawn height
 
     // anim_frames: per character, the frame count of each of its model's animation sets.
     // models: the skeletons for attack spheres (nullptr: spheres in front of the attacker).
     void start(const CharDef* a, std::vector<int> frames_a, const float spawn_a[3], const CharDef* b,
                std::vector<int> frames_b, const float spawn_b[3], const Character* model_a = nullptr,
                const Character* model_b = nullptr);
+    // Uses the stage floor from now on and stands both fighters on it.
+    void set_floor(Floor fl);
     // pads[i] == nullptr: that fighter is computer controlled.
     void step(const Pad* p1, const Pad* p2);
 };
