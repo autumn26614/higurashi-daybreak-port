@@ -20,6 +20,7 @@ struct BattleView: View {
     @State private var game: BattleGame?
     @State private var hud: [DBFighterState] = []
     @State private var winner: Int?
+    @State private var koFrames = 0  // frames since the knock-out (the game waits 180)
     @State private var renderer: StageRenderer?
     @State private var orbit: OrbitCamera?
     @State private var base: StageCamera?
@@ -57,7 +58,7 @@ struct BattleView: View {
                 if fight, game != nil {
                     BattleHUD(states: hud, names: fighters.map { label(Array($0.name.utf8)) })
                     TouchControls(controls: controls)
-                    if let winner {
+                    if let winner, koFrames >= 180 {
                         VStack(spacing: 12) {
                             Text(winner == 0 ? "1P WINS" : "2P WINS").font(.largeTitle.bold()).foregroundStyle(.white)
                             Button("Rematch") { restart() }.buttonStyle(.borderedProminent)
@@ -191,6 +192,7 @@ struct BattleView: View {
     private func restart() {
         guard let scene, fighters.count == 2 else { return }
         winner = nil
+        koFrames = 0
         follow = nil
         do {
             game = try BattleGame(fighters[0], fighters[1], spawns: scene.spawns, stage: scene.stage)
@@ -249,13 +251,15 @@ struct BattleView: View {
     private func frame() {
         guard let scene, let renderer, fighters.count == 2, scene.spawns.count >= 2 else { return }
         if fight, let game {
-            if winner == nil { game.step(p1: controls.pad(), p2: nil) }
+            game.step(p1: controls.pad(), p2: nil)  // after the knock-out the fighters still move
             sounds?.play(game.takeSounds())
             let states = [game.fighter(0), game.fighter(1)]
             hud = states
-            if winner == nil, let w = game.winner {
-                winner = w
-                playResultMusic(w)
+            if winner == nil, let w = game.winner { winner = w }
+            if let w = winner {
+                // Phase 3 of the battle (0x5B3750): 180 frames, then win.ogg / lose.ogg.
+                koFrames += 1
+                if koFrames == 180 { playResultMusic(w) }
             }
             var batches: [StageBatch] = []
             for (f, s) in zip(fighters, states) {
