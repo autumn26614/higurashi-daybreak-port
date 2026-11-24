@@ -52,10 +52,18 @@ struct InputRecord {
 // The game ray casts it straight down from 50 above the feet (0x433DA0); a triangle whose
 // vertex colour has blue < 0x80 is not floor (the game flags it as a special surface).
 struct Floor {
-    std::vector<float> tris;  // 9 floats per triangle
+    std::vector<float> tris;   // floor triangles, 9 floats each
+    std::vector<float> walls;  // steep triangles (normal.y^2 < 0.1), 9 floats each
+    // Sorts a collision triangle into floor or wall by its steepness.
+    void add(const float a[3], const float b[3], const float c[3]);
+    // approx. (the game's horizontal collision is not decoded): keeps a body of `radius` at
+    // knee and chest height out of the walls, sideways only. True if it moved.
+    bool push_out(float pos[3], float radius) const;
+    // A bullet at p touches a wall.
+    bool blocks(const float p[3]) const;
     // Highest floor at or below y + 50 under (x, z); false if there is none.
     bool below(float x, float y, float z, float& out) const;
-    bool empty() const { return tris.empty(); }
+    bool empty() const { return tris.empty() && walls.empty(); }
 };
 
 // The game's random numbers are rand(); any 32-bit generator will do (deterministic here).

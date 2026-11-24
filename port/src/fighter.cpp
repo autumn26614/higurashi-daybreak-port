@@ -1151,6 +1151,90 @@ const FrameRecord* Fighter::record() const {
     return r;
 }
 
+namespace {
+
+// Closest point on triangle abc to p (Ericson, Real-Time Collision Detection 5.1.5).
+void closest_on_triangle(const float p[3], const float a[3], const float b[3], const float c[3], float out[3]) {
+    auto sub = [](const float* x, const float* y, float* r) {
+        for (int k = 0; k < 3; ++k) r[k] = x[k] - y[k];
+    };
+    auto dot = [](const float* x, const float* y) { return x[0] * y[0] + x[1] * y[1] + x[2] * y[2]; };
+    auto set = [&](float u, float v, float w) {
+        for (int k = 0; k < 3; ++k) out[k] = a[k] * u + b[k] * v + c[k] * w;
+    };
+    float ab[3], ac[3], ap[3], bp[3], cp[3];
+    sub(b, a, ab);
+    sub(c, a, ac);
+    sub(p, a, ap);
+    const float d1 = dot(ab, ap), d2 = dot(ac, ap);
+    if (d1 <= 0 && d2 <= 0) return set(1, 0, 0);
+    sub(p, b, bp);
+    const float d3 = dot(ab, bp), d4 = dot(ac, bp);
+    if (d3 >= 0 && d4 <= d3) return set(0, 1, 0);
+    const float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+        const float v = d1 / (d1 - d3);
+        return set(1 - v, v, 0);
+    }
+    sub(p, c, cp);
+    const float d5 = dot(ab, cp), d6 = dot(ac, cp);
+    if (d6 >= 0 && d5 <= d6) return set(0, 0, 1);
+    const float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+        const float w = d2 / (d2 - d6);
+        return set(1 - w, 0, w);
+    }
+    const float va = d3 * d6 - d5 * d4;
+    if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+        const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return set(0, 1 - w, w);
+    }
+    const float denom = 1 / (va + vb + vc);
+    const float v = vb * denom, w = vc * denom;
+    set(1 - v - w, v, w);
+}
+
+}  // namespace
+
+void Floor::add(const float a[3], const float b[3], const float c[3]) {
+    const float u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]}, v[3] = {c[0] - a[0], c[1] - a[1], c[2] - a[2]};
+    const float n[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]};
+    const float len2 = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+    if (len2 <= 0) return;
+    // The game's steepness test (0x433DA0): normal.y^2 < 0.1 is not floor.
+    std::vector<float>& to = n[1] * n[1] < 0.1f * len2 ? walls : tris;
+    for (const float* p : {a, b, c}) to.insert(to.end(), p, p + 3);
+}
+
+bool Floor::push_out(float pos[3], float radius) const {
+    bool moved = false;
+    for (float height : {40.f, 120.f}) {
+        for (size_t t = 0; t + 8 < walls.size(); t += 9) {
+            const float p[3] = {pos[0], pos[1] + height, pos[2]};
+            float q[3];
+            closest_on_triangle(p, &walls[t], &walls[t + 3], &walls[t + 6], q);
+            const float dx = p[0] - q[0], dz = p[2] - q[2], dy = p[1] - q[1];
+            const float d2 = dx * dx + dz * dz;
+            if (d2 + dy * dy >= radius * radius || d2 < 1e-6f) continue;
+            const float d = std::sqrt(d2), push = radius - d;
+            pos[0] += dx / d * push;
+            pos[2] += dz / d * push;
+            moved = true;
+        }
+    }
+    return moved;
+}
+
+bool Floor::blocks(const float p[3]) const {
+    for (size_t t = 0; t + 8 < walls.size(); t += 9) {
+        float q[3];
+        closest_on_triangle(p, &walls[t], &walls[t + 3], &walls[t + 6], q);
+        const float dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
+        if (dx * dx + dy * dy + dz * dz < 20.f * 20.f) return true;
+    }
+    return false;
+}
+
 bool Floor::below(float x, float y, float z, float& out) const {
     const float top = y + 50.f;
     bool found = false;
@@ -1234,7 +1318,7 @@ void Battle::fly_bullets() {
             apply_hit(owner, d, rec, b.pos, false);
             continue;
         }
-        if (ground_hit || b.age >= kBulletLife) continue;
+        if (ground_hit || b.age >= kBulletLife || floor.blocks(b.pos)) continue;
         keep.push_back(b);
     }
     shots.swap(keep);
@@ -1322,7 +1406,10 @@ void Battle::step(const Pad* p1, const Pad* p2) {
     for (int i = 0; i < 2; ++i)
         if (!frozen[i]) update_state(f[size_t(i)], f[size_t(1 - i)]);
     for (int i = 0; i < 2; ++i)
-        if (!frozen[i]) physics(f[size_t(i)], floor);
+        if (!frozen[i]) {
+            physics(f[size_t(i)], floor);
+            floor.push_out(f[size_t(i)].pos, 40.f);
+        }
     for (int i = 0; i < 2; ++i) spawn_bullets(i);
     fly_bullets();
     // Keep the two bodies apart.

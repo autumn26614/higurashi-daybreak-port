@@ -645,12 +645,12 @@ int32_t db_battle_set_stage(DBBattle* b, DBArchives* a, int32_t stage) {
             // A vertex colour with blue < 0x80 marks a surface that is not floor (0x433DA0).
             if (batch.has_colors && size_t(v0) * 4 + 2 < batch.colors.size() && batch.colors[size_t(v0) * 4 + 2] < 0x80)
                 continue;
-            for (int k = 0; k < 3; ++k) {
-                const size_t v = batch.indices[i + size_t(k)];
-                for (int c = 0; c < 3; ++c) fl.tris.push_back(batch.positions[v * 3 + size_t(c)]);
-            }
+            const float* p0 = &batch.positions[size_t(batch.indices[i]) * 3];
+            const float* p1 = &batch.positions[size_t(batch.indices[i + 1]) * 3];
+            const float* p2 = &batch.positions[size_t(batch.indices[i + 2]) * 3];
+            fl.add(p0, p1, p2);
         }
-    const int32_t n = int32_t(fl.tris.size() / 9);
+    const int32_t n = int32_t((fl.tris.size() + fl.walls.size()) / 9);
     if (n > 0) b->battle.set_floor(std::move(fl));
     return n;
 }

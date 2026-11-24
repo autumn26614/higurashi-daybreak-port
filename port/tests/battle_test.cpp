@@ -353,6 +353,26 @@ int main() {
         check(fell && bt.f[0].pos[1] == 0.f && bt.f[0].ground, "walks off the ledge, falls, lands");
     }
 
+    // Walls: a vertical quad across the path stops a fighter walking into it, 40 short.
+    {
+        Floor fl;
+        const float g0[3] = {-2000, 0, -3000}, g1[3] = {2000, 0, -3000}, g2[3] = {2000, 0, 1000}, g3[3] = {-2000, 0, 1000};
+        fl.add(g0, g1, g2);
+        fl.add(g0, g2, g3);
+        const float w0[3] = {-1000, -100, -300}, w1[3] = {1000, -100, -300}, w2[3] = {1000, 600, -300},
+                    w3[3] = {-1000, 600, -300};
+        fl.add(w0, w1, w2);
+        fl.add(w0, w2, w3);
+        check(fl.tris.size() == 18 && fl.walls.size() == 18, "floor and wall triangles sorted by steepness");
+        const float here[3] = {0, 0, 0}, beyond[3] = {0, 0, -1500};
+        bt.start(&def, frames, here, &def, frames, beyond);
+        bt.set_floor(fl);
+        run(Pad{0, -1, 0}, 120);
+        check(bt.f[0].pos[2] > -300.f + 39.f && bt.f[0].pos[2] < -300.f + 45.f, "stopped by the wall");
+        const float p[3] = {0, 90, -305};
+        check(fl.blocks(p), "a bullet at the wall is stopped");
+    }
+
     // Battle camera (0x5B1400): fighters 400 apart on flat ground, distance 300.
     {
         const float me[3] = {0, 0, 0}, them[3] = {0, 0, -400};
