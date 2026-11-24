@@ -105,6 +105,11 @@ final class CharacterModel {
         db_battle_open(archives, character, other.character, &s1, &s2, &err, Int32(err.count))
     }
 
+    /// A sound or music entry from the same archives, decoded (nil if missing).
+    func sound(_ entry: String) -> DecodedSound? {
+        try? DecodedSound.load(archives, Array(entry.utf8))
+    }
+
     /// Stands a battle's fighters on stage `stage`'s collision floor (read from these archives).
     func setBattleStage(_ battle: OpaquePointer, stage: Int) -> Int {
         Int(db_battle_set_stage(battle, archives, Int32(stage)))

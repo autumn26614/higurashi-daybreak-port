@@ -28,6 +28,7 @@ struct BattleView: View {
     @State private var loading = false
     @State private var errorText: String?
     @StateObject private var controls = BattleControls()
+    @State private var music = SoundPlayer()
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
 
     /// Character models only: data/<name>/0N.X outside the item / effect folders.
@@ -84,9 +85,15 @@ struct BattleView: View {
         .onChange(of: p2) { _ in Task { await load() } }
         .onChange(of: anim) { _ in started = Date() }
         .onChange(of: fight) { on in
-            if on { restart() } else { renderer?.camera = base }
+            if on {
+                restart()
+            } else {
+                renderer?.camera = base
+                music.stop()
+            }
         }
         .onReceive(tick) { _ in frame() }
+        .onDisappear { music.stop() }
     }
 
     private func statusLine(_ s: StageScene) -> String {
@@ -188,6 +195,37 @@ struct BattleView: View {
             if fight { errorText = error.localizedDescription }
         }
         frame()
+        playBattleMusic()
+    }
+
+    /// The battle BGM, data/bgm/%02d.ogg (0x5B436B). In versus the game picks it at random or
+    /// from the menu among 01-05, 11-15 and 21; here the stage's own number, else 21.
+    static func musicEntries(stage: Int) -> [String] {
+        [stage, 21, 1].map { String(format: "data/bgm/%02d.ogg", $0) }
+    }
+
+    private func playBattleMusic() {
+        guard fight, let model = fighters.first, let stage = scene?.stage else { return }
+        let player = music
+        Task.detached {
+            let song = Self.musicEntries(stage: stage).lazy.compactMap { model.sound($0) }.first
+            await MainActor.run {
+                if let song { player.play(song) } else { player.stop() }
+            }
+        }
+    }
+
+    /// win.ogg when 1P wins, lose.ogg otherwise (0x5B4C46 / 0x5B4BA6).
+    private func playResultMusic(_ winner: Int) {
+        guard let model = fighters.first else { return }
+        let player = music
+        let entry = winner == 0 ? "data/bgm/win.ogg" : "data/bgm/lose.ogg"
+        Task.detached {
+            let song = model.sound(entry)
+            await MainActor.run {
+                if let song { player.play(song) } else { player.stop() }
+            }
+        }
     }
 
     /// Looks across the line between 1P and 2P from the side, a little above.
@@ -208,7 +246,10 @@ struct BattleView: View {
             if winner == nil { game.step(p1: controls.pad(), p2: nil) }
             let states = [game.fighter(0), game.fighter(1)]
             hud = states
-            if winner == nil, let w = game.winner { winner = w }
+            if winner == nil, let w = game.winner {
+                winner = w
+                playResultMusic(w)
+            }
             var batches: [StageBatch] = []
             for (f, s) in zip(fighters, states) {
                 let a = Int(s.anim) < f.animations.count ? Int(s.anim) : -1

@@ -69,6 +69,7 @@ final class MediaTests: XCTestCase {
         let cam = BattleView.battleCamera(s)
         XCTAssertLessThan(cam.eye.z, cam.target.z, "the camera stands on the -z side")
         XCTAssertGreaterThan(cam.eye.y, cam.target.y)
+        XCTAssertEqual(BattleView.musicEntries(stage: 3), ["data/bgm/03.ogg", "data/bgm/21.ogg", "data/bgm/01.ogg"])
         // No touches, keys or controller: a neutral pad.
         let pad = BattleControls().pad()
         XCTAssertEqual(pad.x, 0)

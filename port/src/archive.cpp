@@ -140,9 +140,12 @@ bool Archive::read(const Entry& e, std::vector<uint8_t>& out, std::string* err) 
         return false;
     }
     out.resize(e.size);
-    if (seek64(f_, e.offset, SEEK_SET) != 0 || fread(out.data(), 1, e.size, f_) != e.size) {
-        set_err(err, "short read: " + e.name);
-        return false;
+    {
+        std::lock_guard<std::mutex> lock(read_);  // music decodes off the main thread
+        if (seek64(f_, e.offset, SEEK_SET) != 0 || fread(out.data(), 1, e.size, f_) != e.size) {
+            set_err(err, "short read: " + e.name);
+            return false;
+        }
     }
     // Payload XOR used by Archive::Read (0x5E70A0): one byte key per entry.
     uint8_t k = uint8_t((e.offset >> 1) | 8);

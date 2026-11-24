@@ -3,6 +3,7 @@
 #pragma once
 #include <cstdint>
 #include <cstdio>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -51,6 +52,7 @@ private:
     bool load_index(const std::string& path, std::string* err);
 
     FILE* f_ = nullptr;
+    mutable std::mutex read_;  // read() seeks the shared FILE: one reader at a time
     uint64_t file_size_ = 0;
     std::vector<Entry> entries_;
     std::unordered_map<std::string, size_t> lookup_;  // lower_ascii(name) -> first entry
