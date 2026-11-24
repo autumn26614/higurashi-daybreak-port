@@ -436,6 +436,10 @@ int main() {
     check(in.released[0] == 2 && in.x == 0, "release length");
     in.update(Pad{-1, 0, 0});
     check(in.tap == 3, "double tap left");
+    Pad dash;
+    dash.tap = 1;
+    in.update(dash);
+    check(in.tap == 1, "a dash button gives the double tap directly");
 
     if (failures == 0) std::printf("battle_test: all passed\n");
     return failures ? 1 : 0;

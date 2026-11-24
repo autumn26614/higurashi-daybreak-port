@@ -1124,6 +1124,10 @@ void InputRecord::update(const Pad& p) {
         held[i] = down ? held[i] + 1 : 0;
     }
     // Double tap: a direction pressed again within 12 frames of letting it go.
+    if (p.tap >= 1 && p.tap <= 4) {
+        tap = p.tap;
+        return;
+    }
     const bool was[4] = {oy < 0, oy > 0, ox < 0, ox > 0};
     const bool now[4] = {y < 0, y > 0, x < 0, x > 0};
     tap = 0;

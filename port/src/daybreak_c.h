@@ -163,6 +163,7 @@ typedef struct DBBattle DBBattle;
 typedef struct {
     int32_t x, y;
     uint32_t buttons;
+    int32_t tap; /* a double tap this frame (1 up, 2 down, 3 left, 4 right; 0 none): a dash button */
 } DBPad;
 typedef struct {
     float pos[3];

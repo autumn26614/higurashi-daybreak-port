@@ -88,6 +88,13 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(controls.pad().buttons, 0b111)
         controls.set("Guard", mask: 0b011, down: false)
         XCTAssertEqual(controls.pad().buttons, 0b100)
+        // Dash: one frame of the double-tap code, forward when the stick is centred.
+        controls.dash()
+        XCTAssertEqual(controls.pad().tap, 1)
+        XCTAssertEqual(controls.pad().tap, 0)
+        controls.stick = SIMD2(-1, 0)
+        controls.dash()
+        XCTAssertEqual(controls.pad().tap, 3)
     }
 
     func testDecodedSoundLoopsAndPlayerAcceptsIt() {

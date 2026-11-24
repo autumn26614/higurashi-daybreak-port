@@ -35,6 +35,7 @@ constexpr double kFrameSeconds = 0.016;  // the game advances animations 0.016 s
 struct Pad {
     int x = 0, y = 0;
     uint32_t buttons = 0;
+    int tap = 0;  // a double tap given directly (1 up, 2 down, 3 left, 4 right): a dash button
 };
 
 // The game's per-player input record (+0x274): signed held-frame counts for the axes,

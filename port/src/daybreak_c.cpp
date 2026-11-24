@@ -692,7 +692,7 @@ void db_battle_step_pads(DBBattle* b, const DBPad* const* pads, int32_t n) {
     std::vector<const db::battle::Pad*> ptrs(buf.size(), nullptr);
     for (int32_t i = 0; i < n; ++i)
         if (pads && pads[i]) {
-            buf[size_t(i)] = {pads[i]->x, pads[i]->y, pads[i]->buttons};
+            buf[size_t(i)] = {pads[i]->x, pads[i]->y, pads[i]->buttons, pads[i]->tap};
             ptrs[size_t(i)] = &buf[size_t(i)];
         }
     b->battle.step(ptrs);
@@ -733,7 +733,7 @@ void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2) {
     db::battle::Pad pads[2];
     const DBPad* in[2] = {p1, p2};
     for (int i = 0; i < 2; ++i)
-        if (in[i]) pads[i] = {in[i]->x, in[i]->y, in[i]->buttons};
+        if (in[i]) pads[i] = {in[i]->x, in[i]->y, in[i]->buttons, in[i]->tap};
     b->battle.step(p1 ? &pads[0] : nullptr, p2 ? &pads[1] : nullptr);
 }
 

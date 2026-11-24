@@ -112,6 +112,10 @@ final class BattleControls: ObservableObject {
     /// On-screen stick, -1...1 each axis (y < 0 = up on screen = toward the opponent).
     var stick = SIMD2<Float>(0, 0)
     private var held: [String: UInt32] = [:]  // on-screen buttons down, by name
+    private var dashPending = false
+
+    /// The on-screen Dash button: a double tap in the stick's direction (forward if centred).
+    func dash() { dashPending = true }
 
     /// Buttons held on screen (a button can stand for several, like the game's macros).
     var touchButtons: UInt32 { held.values.reduce(0, |) }
@@ -147,7 +151,13 @@ final class BattleControls: ObservableObject {
         }
         // The game reads directions digitally.
         func axis(_ f: Float) -> Int32 { f < -0.4 ? -1 : f > 0.4 ? 1 : 0 }
-        return DBPad(x: axis(v.x), y: axis(v.y), buttons: buttons)
+        var tap: Int32 = 0
+        if dashPending {
+            dashPending = false
+            let x = axis(v.x), y = axis(v.y)
+            tap = abs(v.x) > abs(v.y) && x != 0 ? (x < 0 ? 3 : 4) : (y > 0 ? 2 : 1)
+        }
+        return DBPad(x: axis(v.x), y: axis(v.y), buttons: buttons, tap: tap)
     }
 }
 

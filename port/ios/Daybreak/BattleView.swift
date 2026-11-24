@@ -446,6 +446,7 @@ struct TouchControls: View {
                 Spacer()
                 VStack(spacing: 14) {
                     HStack(spacing: 14) {
+                        ButtonPad(title: "Dash") { down in if down { controls.dash() } }
                         button("Guard", mask: 0b011)  // the game's macro button b5 = b0 + b1
                         button("Shot", mask: 0b100)
                     }
