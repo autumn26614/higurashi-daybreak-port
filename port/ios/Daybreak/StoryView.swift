@@ -74,7 +74,7 @@ struct StoryRunView: View {
     let team: DBTeam
 
     enum Phase: Equatable {
-        case before(Int), battle(Int), after(Int), end
+        case before(Int), battle(Int), after(Int), ending, end
     }
 
     @State private var phase: Phase = .before(0)
@@ -103,7 +103,7 @@ struct StoryRunView: View {
     }
 
     private func next(after i: Int) -> Phase {
-        i + 1 < Int(team.episodes) ? .before(i + 1) : .end
+        i + 1 < Int(team.episodes) ? .before(i + 1) : (movie.isEmpty ? .end : .ending)
     }
 
     var body: some View {
@@ -122,11 +122,11 @@ struct StoryRunView: View {
                 }
             case .after(let i):
                 scene(i, part: 1) { phase = next(after: i) }
+            case .ending:
+                MovieView(urls: urls, entry: movie) { phase = .end }
             case .end:
                 VStack(spacing: 16) {
                     Text("Fin").font(.largeTitle.bold())
-                    Text("The ending movie (\(movie)) needs the movie player, which is not done yet.")
-                        .font(.footnote).multilineTextAlignment(.center).padding()
                 }
                 .accessibilityIdentifier("storyEnd")
             }
@@ -146,7 +146,7 @@ struct StoryRunView: View {
         switch phase {
         case .before(let i), .battle(let i), .after(let i):
             return String(format: "Episode %d of %d", i + 1, Int(team.episodes))
-        case .end:
+        case .ending, .end:
             return "Story"
         }
     }

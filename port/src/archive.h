@@ -30,6 +30,10 @@ public:
     virtual const Entry* find(const std::string& name) const = 0;
     // `e` must come from this source's find().
     virtual bool read(const Entry& e, std::vector<uint8_t>& out, std::string* err) const = 0;
+    // Bytes [at, at + count) of the entry (clamped to its size), decrypted: for streaming
+    // big entries (movies are up to 220 MB). The default reads the whole entry.
+    virtual bool read_range(const Entry& e, uint64_t at, size_t count, std::vector<uint8_t>& out,
+                            std::string* err) const;
 };
 
 class Archive : public Source {
@@ -46,6 +50,8 @@ public:
     const std::vector<Entry>& entries() const { return entries_; }
     const Entry* find(const std::string& name) const override;
     bool read(const Entry& e, std::vector<uint8_t>& out, std::string* err) const override;
+    bool read_range(const Entry& e, uint64_t at, size_t count, std::vector<uint8_t>& out,
+                    std::string* err) const override;
     bool owns(const Entry& e) const;
 
 private:
@@ -70,6 +76,8 @@ public:
     // Index into archives() of the archive `name` resolves to, or -1.
     int which(const std::string& name) const;
     bool read(const Entry& e, std::vector<uint8_t>& out, std::string* err) const override;
+    bool read_range(const Entry& e, uint64_t at, size_t count, std::vector<uint8_t>& out,
+                    std::string* err) const override;
 
 private:
     std::vector<const Archive*> archives_;

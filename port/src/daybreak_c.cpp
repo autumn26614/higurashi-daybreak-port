@@ -16,6 +16,7 @@
 #include "character.h"
 #include "chardef.h"
 #include "fighter.h"
+#include "movie.h"
 #include "raster.h"
 #include "recipe.h"
 #include "identify.h"
@@ -57,6 +58,10 @@ struct DBCharacter {
 
 struct DBStageGeometry {
     db::StageGeometry geo;
+};
+
+struct DBMovie {
+    db::Movie movie;
 };
 
 struct DBBattle {
@@ -814,6 +819,51 @@ int32_t db_battle_bullet_model(const DBBattle* b, int32_t owner, int32_t slot, c
         out[n] = 0;
     }
     return int32_t(path.size());
+}
+
+DBMovie* db_movie_open(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len) {
+    if (!a || !name || name_len <= 0) {
+        set_err(err, err_len, "no archive or name");
+        return nullptr;
+    }
+    auto* m = new (std::nothrow) DBMovie;
+    if (!m) {
+        set_err(err, err_len, "out of memory");
+        return nullptr;
+    }
+    std::string msg;
+    if (!m->movie.open(a->set, std::string(name, size_t(name_len)), &msg)) {
+        set_err(err, err_len, msg);
+        delete m;
+        return nullptr;
+    }
+    set_err(err, err_len, "");
+    return m;
+}
+
+void db_movie_free(DBMovie* m) { delete m; }
+int32_t db_movie_width(const DBMovie* m) { return m ? m->movie.width() : 0; }
+int32_t db_movie_height(const DBMovie* m) { return m ? m->movie.height() : 0; }
+double db_movie_fps(const DBMovie* m) { return m ? m->movie.fps() : 0; }
+int32_t db_movie_sample_rate(const DBMovie* m) { return m ? m->movie.sample_rate() : 0; }
+
+int32_t db_movie_next_frame(DBMovie* m, uint8_t* rgba, int32_t len, double* time) {
+    if (!m || !rgba) return 0;
+    std::vector<uint8_t> frame;
+    double t = 0;
+    if (!m->movie.next_frame(frame, &t) || frame.size() > size_t(std::max(len, 0))) return 0;
+    std::memcpy(rgba, frame.data(), frame.size());
+    if (time) *time = t;
+    return 1;
+}
+
+int32_t db_movie_next_audio(DBMovie* m, int16_t* out, int32_t max_frames) {
+    if (!m || !out || max_frames <= 0) return 0;
+    std::vector<int16_t> pcm;
+    if (!m->movie.next_audio(pcm)) return 0;
+    const size_t frames = std::min(pcm.size() / 2, size_t(max_frames));
+    std::memcpy(out, pcm.data(), frames * 2 * sizeof(int16_t));
+    return int32_t(frames);
 }
 
 int32_t db_team_load(DBArchives* a, int32_t team, DBTeam* out) {

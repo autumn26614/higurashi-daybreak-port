@@ -231,6 +231,23 @@ int32_t db_battle_time_limit(const DBBattle* b);
 /* -1 while both teams stand, else the winning team (in 1 vs 1 the winner's index). */
 int32_t db_battle_winner(const DBBattle* b);
 
+/* ---- Movies (src/movie.h) -------------------------------------------------------------
+ * The movie/ entries (e.g. movie/op.mpg in daybreak02.dat, Kai daybreak06.dat): MPEG-1,
+ * 640x480, 29.97 fps, MP2 audio, streamed from the archive. Video and audio decode
+ * independently; keep the archives open while a movie is. */
+typedef struct DBMovie DBMovie;
+DBMovie* db_movie_open(DBArchives* a, const char* name, int32_t name_len, char* err, int32_t err_len);
+void db_movie_free(DBMovie* m);
+int32_t db_movie_width(const DBMovie* m);
+int32_t db_movie_height(const DBMovie* m);
+double db_movie_fps(const DBMovie* m);
+int32_t db_movie_sample_rate(const DBMovie* m); /* 0: no audio */
+/* The next frame as RGBA into rgba (width * height * 4 bytes); 0 at the end. */
+int32_t db_movie_next_frame(DBMovie* m, uint8_t* rgba, int32_t len, double* time);
+/* The next audio packet, interleaved 16-bit stereo, into out (room for max_frames stereo
+ * frames; 1152 is always enough); returns the frames written, 0 at the end. */
+int32_t db_movie_next_audio(DBMovie* m, int16_t* out, int32_t max_frames);
+
 /* ---- Story mode teams (src/story.h) ---------------------------------------------------
  * data/scenario/team%02d.dat: members, six episodes (opposing pair, stage, episode number N;
  * scenes D%02d-0.txt before the battle and D%02d-1.txt after), ending movie. */

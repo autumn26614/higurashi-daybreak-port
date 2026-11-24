@@ -157,6 +157,12 @@ struct ContentView: View {
             }
             .accessibilityIdentifier("battle")
             NavigationLink {
+                MovieList(urls: archiveURLs)
+            } label: {
+                Label("Movies", systemImage: "film")
+            }
+            .accessibilityIdentifier("movies")
+            NavigationLink {
                 SoundTestView(urls: archiveURLs)
             } label: {
                 Label("Sound test", systemImage: "music.note")

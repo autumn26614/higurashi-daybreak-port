@@ -4,7 +4,7 @@ CC       ?= cc
 # -ffp-contract=off: no fused multiply-add, so bounding boxes match on x86-64 and arm64.
 override CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -ffp-contract=off $(CXXFLAGS)
 override CFLAGS   := -std=c11 -O2 -Wall -Wextra -ffp-contract=off $(CFLAGS)
-LIB      := src/archive.cpp src/cnv.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp src/identify.cpp src/scenario.cpp src/geometry.cpp src/raster.cpp src/talk.cpp src/character.cpp src/audio.cpp src/story.cpp src/chardef.cpp src/fighter.cpp
+LIB      := src/archive.cpp src/cnv.cpp src/inflate.cpp src/xfile.cpp src/stage.cpp src/identify.cpp src/scenario.cpp src/geometry.cpp src/raster.cpp src/talk.cpp src/character.cpp src/audio.cpp src/story.cpp src/chardef.cpp src/fighter.cpp src/movie.cpp
 BUILD    ?= build
 BIN      := $(BUILD)/stageinfo
 CAPI     := $(BUILD)/capi_test
