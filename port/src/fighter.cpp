@@ -320,38 +320,64 @@ void reaction(Fighter& f) {
     }
 }
 
-// Guard (moves 390-392; their state code is not decoded, the behaviour follows the data):
-// 390 raises the guard (step 0), holds it while both buttons stay down (step 1, frame flag
-// 0x400 = guarding) and lowers it (step 2); 391 is a blocked hit, 392 a guard break.
+// Guard (0x443EE0 cases 0x186-0x188). 390: raise the guard facing the opponent (step 0),
+// hold it while jump and melee stay down, 10 stamina a frame (step 1; its frames carry flag
+// 0x400), lower it (step 2). 391: the guard took a hit - pushed back at 15, easing by 1 a
+// frame, then the "guard" voice. 392: the attacker whose hit was guarded recoils the same way
+// with the "guarded" voice. (0x189 / 0x18A are the air guard, not done.)
 bool guarding(const Fighter& f) {
     const FrameRecord* r = f.record();
     return r && (r->flags & 0x400);
 }
 
 void guard(Fighter& f) {
-    const bool held = f.in.held[0] > 0 && f.in.held[1] > 0;
-    f.extra = 0;
-    f.turn_rate = 0;
-    ease0(f.speed, 0.5f);
-    if (!f.ground) return to_fall(f);
-    switch (f.state) {
-    case 390:
-        regen(f);
-        if (f.step == 1) {
-            if (!held) set_step(f, 2);
-            else if (f.frame + 1 >= step_len(f)) f.frame = 0;  // hold the guard pose
+    const int st = f.step, fr = f.frame;
+    if (done(f)) {
+        if (f.state == 391) voice(f, 12);
+        if (!f.ground) return to_fall(f);
+        set_state(f, 0);
+        return;
+    }
+    if (!f.ground) {
+        if (f.state == 391) {
+            f.gravity = 0.5f;
+            return to_air_hit(f);
         }
-        if (done(f)) set_state(f, 0);
-        return;
-    case 391:
-        if (done(f)) {
-            if (held && set_state(f, 390)) set_step(f, 1);
-            else set_state(f, 0);
+        return to_fall(f);
+    }
+    if (f.state == 390) {
+        if (st == 1) spend(f, 10);
+        if (st == 0 && fr == 0) {
+            se(f, 4);
+            f.extra = 0;
+            f.speed = 0;
+        }
+        if (st == 0) turn(f, 0, 20);
+        if (st == 1 && (f.stamina == 0 || f.in.held[0] == 0 || f.in.held[1] == 0)) {
+            set_step(f, 2);
+            return;
+        }
+        if (st == 1 && f.frame + 1 >= step_len(f)) f.frame = 0;  // the held guard repeats its step
+        if (st == 2) {
+            f.turn_rate = 0;
+            f.speed = std::max(0.f, f.speed - 1.f);
         }
         return;
-    default:  // 392
-        if (done(f)) set_state(f, 0);
+    }
+    // 391 / 392: recoil
+    if (st == 0 && fr == 0) {
+        f.extra = 0;
+        f.speed = -15;
+        f.scratch = 0;
+        if (f.state == 392) voice(f, 13);
+    }
+    if (st == 0 && ++f.scratch > 20) {
+        set_step(f, 1);
         return;
+    }
+    if (st < 2) {
+        f.turn_rate = 0;
+        f.speed = std::min(0.f, f.speed + 1.f);
     }
 }
 
@@ -846,7 +872,7 @@ void hits(Fighter& a, Fighter& d) {
         serial = a.state * 10000 + a.step * 100 + int(rec - m->steps[size_t(a.step)].frames.data());
     } else {
         const int len = step_len(a);
-        if (a.state < 300 || a.step != int(m->steps.size()) - 1 || a.frame < len / 4 || a.frame > len / 2 ||
+        if (a.state < 300 || (a.state >= 390 && a.state <= 394) || a.step != int(m->steps.size()) - 1 || a.frame < len / 4 || a.frame > len / 2 ||
             has_hit_record(*m))
             return;
         rec = &stand_in_hit();
@@ -861,17 +887,16 @@ void hits(Fighter& a, Fighter& d) {
     a.hit_serial = serial;
     a.freeze = std::clamp(rec->param(36), 0, 30);
     d.freeze = std::clamp(rec->param(40), 0, 30);
-    // approx.: a guard blocks hits from the front (within 90 degrees of where the defender
-    // faces); the blocked hit costs stamina (damage / 5) instead of HP and pushes back half
-    // as far; out of stamina the guard breaks.
-    if (guarding(d) || d.state == 391) {
+    // A raised guard (its frames flagged 0x400) blocks a hit from the front: the defender is
+    // pushed back (391), the attacker recoils (392; 0x4337F0 returns 2 for it). approx.: the
+    // front test (within 90 degrees of the defender's facing) is not decoded.
+    if (guarding(d)) {
         const float dx = a.pos[0] - d.pos[0], dz = a.pos[2] - d.pos[2];
         const float to_attacker = std::atan2(-dx, -dz), diff = std::remainder(to_attacker - d.body_yaw(), 2 * kPi);
         if (std::fabs(diff) < kPi / 2) {
-            d.stamina = std::max(0, d.stamina - std::max(0, rec->damage()) / 5);
-            d.knock[0] = float(rec->param(68)) * 0.5f;
-            if (set_state(d, d.stamina > 0 ? 391 : 392)) d.speed = -d.knock[0] * 0.01f - 4.f;
-            voice(d, 13);
+            se(d, 51);
+            set_state(d, 391);
+            set_state(a, 392);
             return;
         }
     }

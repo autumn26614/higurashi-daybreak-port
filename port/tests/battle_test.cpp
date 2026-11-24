@@ -138,8 +138,8 @@ std::vector<MoveSpec> moves() {
         {124, 0, 99, {{8, {shut}}, {8, {shut}}, {8, {shut}}}},
         {128, 0, 99, {{8, {shut}}}},
         {390, 0, 150, {{10, {shut}}, {10, {{0, 0x400}}}, {10, {shut}}}},
-        {391, 0, 150, {{10, {{0, 0x400}}}}},
-        {392, 0, 150, {{10, {shut}}}},
+        {391, 0, 150, {{10, {shut}}, {10, {shut}}}},
+        {392, 0, 150, {{10, {shut}}, {10, {shut}}}},
         {300, 10, 20, {{9, {shut}}, {9, {shut}}, {9, {shut, {4, 0, 1, 20, 1500}, {10, 0}, {15, 0x100}}}}},
         {301, 20, 30, {{9, {shut, {7, 0, 1, 20, 1500}, {16, 0}, {20, 0x100}}}}},
     };
@@ -282,20 +282,24 @@ int main() {
     for (int i = 0; i < 120; ++i) bt.step(&idle, nullptr);
     check(dist() < 790.f, "computer walks in");
 
-    // Guard: jump + melee held together raises the guard (390); a hit from the front is
-    // blocked (391): no HP lost, stamina spent; letting go lowers it.
+    // Guard: jump + melee held together raises the guard (390, 10 stamina a frame); a hit from
+    // the front is blocked (391) and the attacker recoils (392); letting go lowers it.
     bt.start(&def, frames, a, &def, frames, near);
     const Pad both{0, 0, 3};
     for (int i = 0; i < 25; ++i) bt.step(&idle, &both);
     check(bt.f[1].state == 390 && bt.f[1].step == 1, "guard raised and held");
     int blocked = 0;
+    bool recoiled = false;
     for (int i = 0; i < 60; ++i) {
         const Pad hold{0, 0, 3};
         const Pad atk{0, 0, i % 30 < 3 ? 2u : 0u};
         bt.step(&atk, &hold);
         if (bt.f[1].state == 391) ++blocked;
+        if (bt.f[0].state == 392) recoiled = true;
     }
-    check(blocked > 0 && bt.f[1].hp == 10000 && bt.f[1].stamina < 1000, "hit blocked: stamina, not HP");
+    check(blocked > 0 && bt.f[1].hp == 10000, "hit blocked: no HP lost");
+    check(recoiled, "the guarded attacker recoils (392)");
+    check(bt.f[1].stamina < 1000, "holding the guard costs stamina");
     for (int i = 0; i < 80; ++i) bt.step(&idle, &idle);
     check(bt.f[1].state == 0, "guard lowered");
 
