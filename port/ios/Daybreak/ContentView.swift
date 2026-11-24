@@ -127,6 +127,14 @@ struct ContentView: View {
     private func results(_ r: StageReport) -> some View {
         Section {
             NavigationLink {
+                TitleView(urls: archiveURLs)
+            } label: {
+                Label("Play", systemImage: "play.fill")
+            }
+            .accessibilityIdentifier("play")
+        }
+        Section {
+            NavigationLink {
                 StageView(urls: archiveURLs, stage: Int(stage))
             } label: {
                 Label("View stage in 3D", systemImage: "cube")
