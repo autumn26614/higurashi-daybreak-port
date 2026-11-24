@@ -45,97 +45,169 @@ class Image:
         return struct.unpack_from('<I', self.mem, r)[0] if 0 <= r <= len(self.mem) - 4 else None
 
 
-def discover(img, extra_seeds=()):
-    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-    md.detail = True
-    insns = {}          # address -> capstone insn
-    functions = set()
-    jump_tables = {}    # jmp address -> [targets]
-    indirect_calls = 0
-    indirect_jumps = 0
+# Instructions compiled user-mode code does not contain: a candidate entry that reaches one
+# is data that only looks like code.
+BAD = {'in', 'out', 'insb', 'insd', 'insw', 'outsb', 'outsd', 'outsw', 'arpl', 'bound', 'daa', 'das', 'aaa',
+       'aas', 'aam', 'aad', 'popal', 'pushal', 'popaw', 'pushaw', 'les', 'lds', 'into', 'iretd', 'iret', 'hlt',
+       'sti', 'cli', 'int1', 'salc', 'retf', 'ljmp', 'lcall', 'sldt', 'str', 'enter', 'int', 'xlatb', 'std',
+       'loop', 'loope', 'loopne', 'jecxz'}
 
-    seeds = [img.base + img.pe.entry_rva]
-    seeds += [img.base + rva for rva, _, _ in img.pe.exports()]
-    seeds += list(extra_seeds)
-    # Pointers into the code from the data sections: vtables, callbacks, jump tables.
-    data_ptrs = set()
+
+class Explorer:
+    def __init__(self, img):
+        self.img = img
+        self.md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        self.md.detail = True
+        self.cache = {}
+
+    def decode(self, a):
+        if a in self.cache:
+            return self.cache[a]
+        r = a - self.img.base
+        try:
+            ins = next(self.md.disasm(self.img.mem[r:r + 16], a, 1))
+        except StopIteration:
+            ins = None
+        self.cache[a] = ins
+        return ins
+
+    def explore(self, start, known, strict=True):
+        """Follows the code reachable from `start` (not into addresses already in `known`).
+        Returns (ok, insns, call targets, immediate code pointers, jump tables, indirect calls,
+        indirect jumps); ok is False when it reaches undecodable bytes or BAD instructions."""
+        img = self.img
+        insns, calls, imms, tables = {}, set(), set(), {}
+        icalls = ijumps = 0
+        work = [start]
+        seen = set()
+        while work:
+            a = work.pop()
+            if a in seen or a in known or not img.in_code(a):
+                continue
+            seen.add(a)
+            while True:
+                if a in insns or a in known:
+                    break
+                ins = self.decode(a)
+                if ins is None:
+                    if strict:
+                        return False, None, None, None, None, 0, 0
+                    break
+                m = ins.mnemonic.split(' ')[-1] if ins.mnemonic.startswith(('rep', 'lock')) else ins.mnemonic
+                if strict and m in BAD:
+                    return False, None, None, None, None, 0, 0
+                for op in (ins.operands if strict else ()):
+                    if op.type == X.X86_OP_MEM and op.mem.segment and ins.reg_name(op.mem.segment) not in ('fs', 'ds', 'ss', 'es'):
+                        return False, None, None, None, None, 0, 0
+                insns[a] = ins
+                g = set(ins.groups)
+                nxt = a + ins.size
+                if X.X86_GRP_CALL in g:
+                    op = ins.operands[0]
+                    if op.type == X.X86_OP_IMM:
+                        if img.in_code(op.imm):
+                            calls.add(op.imm)
+                        elif strict:
+                            return False, None, None, None, None, 0, 0
+                    else:
+                        icalls += 1
+                    a = nxt
+                    continue
+                if not (X.X86_GRP_JUMP in g):
+                    # Code addresses in immediates (`push offset fn`): the exe has no relocations.
+                    for op in ins.operands:
+                        if op.type == X.X86_OP_IMM:
+                            v = op.imm & 0xFFFFFFFF
+                            if img.in_code(v):
+                                imms.add(v)
+                if X.X86_GRP_RET in g or m in ('int3',):
+                    break
+                if X.X86_GRP_JUMP in g:
+                    op = ins.operands[0]
+                    if op.type == X.X86_OP_IMM:
+                        if not img.in_code(op.imm) and strict:
+                            return False, None, None, None, None, 0, 0
+                        work.append(op.imm)
+                        if ins.mnemonic == 'jmp':
+                            break
+                        a = nxt
+                        continue
+                    # jmp dword ptr [reg*4 + table]: MSVC switch
+                    if op.type == X.X86_OP_MEM and op.mem.scale == 4 and op.mem.base == 0 and op.mem.index != 0:
+                        t = op.mem.disp & 0xFFFFFFFF
+                        targets = []
+                        while len(targets) < 4096:
+                            v = img.u32(t)
+                            if v is None or not img.in_code(v):
+                                break
+                            targets.append(v)
+                            t += 4
+                        tables[a] = targets
+                        work.extend(targets)
+                    else:
+                        ijumps += 1
+                    break
+                a = nxt
+        return True, insns, calls, imms, tables, icalls, ijumps
+
+
+def discover(img, extra_seeds=()):
+    ex = Explorer(img)
+    insns = {}
+    functions = set()   # strong: entry, exports, direct call targets
+    weak = set()        # accepted code pointers from data, relocations and immediates
+    jump_tables = {}
+    counts = [0, 0]
+
+    strong_work = [img.base + img.pe.entry_rva] + [img.base + rva for rva, _, _ in img.pe.exports()]
+    strong_work += list(extra_seeds)
+    candidates = set()
     for s in img.pe.sections:
         if s.executable:
             continue
         for off in range(0, s.vsize - 3, 4):
             v = img.u32(img.base + s.va + off)
             if v is not None and img.in_code(v):
-                data_ptrs.add(v)
-    functions.update(seeds)            # strong: entry, exports, direct call targets (added below)
-    seeds += sorted(data_ptrs)         # weak: code pointers found in data (vtables, callbacks)
+                candidates.add(v)
+    # Every absolute pointer a DLL holds is listed in its relocations, wherever it lives
+    # (d3dx9 keeps its read-only tables inside .text).
+    for r in img.pe.relocations():
+        v = img.u32(img.base + r)
+        if v is not None and img.in_code(v):
+            candidates.add(v)
 
-    work = list(seeds)
-    seen_blocks = set()
-    while work:
-        a = work.pop()
-        if a in seen_blocks or not img.in_code(a):
-            continue
-        seen_blocks.add(a)
-        while True:
-            if a in insns:
-                break
-            r = a - img.base
-            try:
-                ins = next(md.disasm(img.mem[r:r + 16], a, 1))
-            except StopIteration:
-                break  # undecodable: data in code
-            insns[a] = ins
-            g = set(ins.groups)
-            nxt = a + ins.size
-            if not (X.X86_GRP_CALL in g or X.X86_GRP_JUMP in g):
-                # Code addresses in immediates (`push offset fn`, `mov [x], offset fn`): the exe
-                # has no relocations, so these are the other way functions get referenced.
-                for op in ins.operands:
-                    if op.type == X.X86_OP_IMM:
-                        v = op.imm & 0xFFFFFFFF
-                        if img.in_code(v) and v not in functions and v not in data_ptrs:
-                            data_ptrs.add(v)
-                            work.append(v)
-            if X.X86_GRP_CALL in g:
-                op = ins.operands[0]
-                if op.type == X.X86_OP_IMM:
-                    functions.add(op.imm)
-                    work.append(op.imm)
-                else:
-                    indirect_calls += 1
-                a = nxt
+    def take(start, strong):
+        ok, got, calls, imms, tables, ic, ij = ex.explore(start, insns, strict=not strong)
+        if not ok:
+            return False
+        insns.update(got)
+        jump_tables.update(tables)
+        counts[0] += ic
+        counts[1] += ij
+        (functions if strong else weak).add(start)
+        strong_work.extend(calls)
+        candidates.update(imms)
+        return True
+
+    rejected = set()
+    while strong_work or candidates:
+        while strong_work:
+            a = strong_work.pop()
+            if a in functions:
                 continue
-            if X.X86_GRP_RET in g or ins.mnemonic in ('hlt', 'int3'):
-                break
-            if X.X86_GRP_JUMP in g:
-                op = ins.operands[0]
-                if op.type == X.X86_OP_IMM:
-                    work.append(op.imm)
-                    if ins.mnemonic == 'jmp':
-                        break
-                    a = nxt
-                    continue
-                # jmp dword ptr [reg*4 + table]: MSVC switch
-                if op.type == X.X86_OP_MEM and op.mem.scale == 4 and op.mem.base == 0 and op.mem.index != 0:
-                    table = op.mem.disp & 0xFFFFFFFF
-                    targets = []
-                    t = table
-                    while True:
-                        v = img.u32(t)
-                        if v is None or not img.in_code(v) or (targets and t in functions):
-                            break
-                        targets.append(v)
-                        t += 4
-                        if len(targets) > 4096:
-                            break
-                    jump_tables[a] = targets
-                    work.extend(targets)
-                else:
-                    indirect_jumps += 1
-                break
-            a = nxt
-    weak = data_ptrs - functions
-    return insns, functions, weak, jump_tables, indirect_calls, indirect_jumps
+            if a in insns:  # already decoded as part of other code: just mark it an entry
+                functions.add(a)
+                continue
+            if not take(a, True):
+                functions.add(a)  # a call target we cannot decode: keep it so calls trap clearly
+        for a in sorted(candidates - weak - functions - rejected):
+            if a in insns:  # inside code already found (switch cases, handlers): not an entry
+                continue
+            if not take(a, False):
+                rejected.add(a)
+        candidates.clear()
+    weak -= functions
+    return insns, functions, weak, jump_tables, counts[0], counts[1]
 
 
 def main():

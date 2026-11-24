@@ -29,12 +29,15 @@ typedef struct CPU {
 typedef void (*GuestFn)(CPU *);
 typedef struct FnEntry { uint32_t addr; GuestFn fn; } FnEntry;
 typedef struct ImportSlot { uint32_t iat; const char *dll, *name; } ImportSlot;
+typedef struct ExportSlot { const char *name; uint32_t ordinal, addr; } ExportSlot;
 
 extern uint8_t *GM;         /* guest memory base */
 
 /* Provided by the runtime (runtime.c). */
 void rt_icall(CPU *c, uint32_t target);                 /* call/jump to a computed guest address */
 void rt_trap(CPU *c, uint32_t addr, const char *what);  /* unsupported or undecodable code */
+void rt_cpuid(CPU *c);                                  /* reports a CPU without MMX/SSE/3DNow! */
+void rt_rdtsc(CPU *c);
 
 /* ---- memory ---- */
 static inline uint32_t ld8(uint32_t a) { return GM[a]; }
@@ -253,7 +256,7 @@ static inline void fxam(CPU *c) {
 
 /* Register locals of a translated function, and their exchange with the CPU. */
 #define REGS uint32_t eax = c->r[0], ecx = c->r[1], edx = c->r[2], ebx = c->r[3], \
-    esp = c->r[4], ebp = c->r[5], esi = c->r[6], edi = c->r[7]; Fl f = {0, 0, 0, 0, 0}; (void)f
+    esp = c->r[4], ebp = c->r[5], esi = c->r[6], edi = c->r[7]; Fl f = {0, 0, 0, 0, 0}; uint8_t df = 0; (void)f; (void)df
 #define OUT (c->r[0] = eax, c->r[1] = ecx, c->r[2] = edx, c->r[3] = ebx, \
     c->r[4] = esp, c->r[5] = ebp, c->r[6] = esi, c->r[7] = edi)
 #define IN (eax = c->r[0], ecx = c->r[1], edx = c->r[2], ebx = c->r[3], \

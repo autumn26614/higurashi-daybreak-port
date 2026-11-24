@@ -1,5 +1,6 @@
 // Guest memory, loader, dispatcher, heap and threads for the recompiled program.
 #include "runtime.h"
+#include "host.h"
 
 #include <sys/mman.h>
 
@@ -165,19 +166,6 @@ uint32_t make_thunk(const std::string &name, int stack_bytes, ShimFn fn) {
     return kThunkBase + 4 * uint32_t(thunks().size() - 1);
 }
 
-uint32_t resolve_import(const std::string &dll, const std::string &name) {
-    std::string key = module_key(dll) + "!" + name;
-    auto it = registry().find(key);
-    if (it == registry().end()) return 0;
-    if (it->second.data) return it->second.data();
-    static std::map<std::string, uint32_t> made;
-    static std::mutex m;
-    std::lock_guard<std::mutex> lock(m);
-    uint32_t &t = made[key];
-    if (!t) t = make_thunk(key, it->second.stack_bytes, it->second.fn);
-    return t;
-}
-
 static void call_thunk(CPU *c, uint32_t t) {
     uint32_t i = (t - kThunkBase) / 4;
     Thunk k;
@@ -195,14 +183,19 @@ static void call_thunk(CPU *c, uint32_t t) {
 
 // ---- dispatch ----
 namespace {
-const FnEntry *g_table = nullptr;
-uint32_t g_count = 0;
+std::vector<Module *> &modules() {
+    static std::vector<Module *> m;
+    return m;
+}
 }  // namespace
 
 GuestFn lookup(uint32_t addr) {
-    const FnEntry *e = std::lower_bound(g_table, g_table + g_count, addr,
-                                        [](const FnEntry &x, uint32_t a) { return x.addr < a; });
-    if (e != g_table + g_count && e->addr == addr) return e->fn;
+    for (Module *m : modules()) {
+        const FnEntry *end = m->table + m->count;
+        const FnEntry *e =
+            std::lower_bound(m->table, end, addr, [](const FnEntry &x, uint32_t a) { return x.addr < a; });
+        if (e != end && e->addr == addr) return e->fn;
+    }
     return nullptr;
 }
 
@@ -312,20 +305,21 @@ void free_cpu(CPU *c) {
 }
 
 // ---- loading ----
-uint32_t load_exe(const std::string &exe, const Program &p) {
+void load_module(const std::string &path, Module &m) {
     memory_init();
-    g_table = p.table;
-    g_count = p.count;
-    std::ifstream in(exe, std::ios::binary);
-    if (!in) fatal("cannot open %s", exe.c_str());
+    std::ifstream in(path, std::ios::binary);
+    if (!in) fatal("cannot open %s", path.c_str());
     std::vector<uint8_t> d((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     auto u16 = [&](size_t o) { return uint32_t(d[o] | d[o + 1] << 8); };
     auto u32 = [&](size_t o) { return uint32_t(d[o] | d[o + 1] << 8 | d[o + 2] << 16 | uint32_t(d[o + 3]) << 24); };
     uint32_t pe = u32(0x3C);
     uint32_t nsec = u16(pe + 6), opt_size = u16(pe + 20);
     uint32_t opt = pe + 24;
-    uint32_t entry = u32(opt + 16), base = u32(opt + 28);
+    uint32_t entry = u32(opt + 16), preferred = u32(opt + 28), image_size = u32(opt + 56);
     uint32_t headers = u32(opt + 60);
+    uint32_t reloc_rva = u32(opt + 96 + 5 * 8), reloc_size = u32(opt + 96 + 5 * 8 + 4);
+    uint32_t base = m.base;
+    memset(GM + base, 0, image_size);
     memcpy(GM + base, d.data(), std::min<size_t>(headers, d.size()));
     for (uint32_t i = 0; i < nsec; i++) {
         uint32_t o = opt + opt_size + i * 40;
@@ -334,26 +328,99 @@ uint32_t load_exe(const std::string &exe, const Program &p) {
         if (raw + n > d.size()) n = uint32_t(d.size() - raw);
         memcpy(GM + base + va, d.data() + raw, n);
     }
-    // Bind imports.
-    int missing = 0;
-    for (uint32_t i = 0; i < p.import_count; i++) {
-        const ImportSlot &s = p.imports[i];
-        std::string key = module_key(s.dll) + "!" + s.name;
-        auto it = registry().find(key);
-        uint32_t v;
-        if (it == registry().end()) {
-            v = make_thunk(key, -2, nullptr);
-            missing++;
-        } else if (it->second.data) {
-            v = it->second.data();
-        } else {
-            v = make_thunk(key, it->second.stack_bytes, it->second.fn);
+    if (base != preferred) {
+        if (!reloc_size) fatal("%s has no relocations and cannot move to %08x", path.c_str(), base);
+        uint32_t delta = base - preferred;
+        for (uint32_t r = reloc_rva; r < reloc_rva + reloc_size;) {
+            uint32_t page = ld32(base + r), block = ld32(base + r + 4);
+            if (block < 8) break;
+            for (uint32_t k = 0; k < (block - 8) / 2; k++) {
+                uint32_t e = ld16(base + r + 8 + 2 * k);
+                if (e >> 12 == 3) {
+                    uint32_t at = base + page + (e & 0xFFF);
+                    st32(at, ld32(at) + delta);
+                }
+            }
+            r += block;
         }
-        st32(s.iat, v);
     }
-    log("recomp: loaded %s at %08x, %u functions, %u imports (%d without a shim)", exe.c_str(), base, p.count,
-        p.import_count, missing);
-    return base + entry;
+    m.entry = entry ? base + entry : 0;
+    modules().push_back(&m);
+    log("recomp: loaded %s at %08x, %u functions", m.name.c_str(), base, m.count);
+}
+
+static uint32_t module_export(const std::string &dll, const std::string &name) {
+    for (Module *m : modules()) {
+        if (module_key(m->name) != module_key(dll)) continue;
+        for (uint32_t i = 0; i < m->export_count; i++) {
+            const ExportSlot &e = m->exports[i];
+            if ((e.name && name == e.name) || (name[0] == '#' && std::to_string(e.ordinal) == name.substr(1)))
+                return e.addr;
+        }
+    }
+    return 0;
+}
+
+uint32_t resolve_import(const std::string &dll, const std::string &name) {
+    if (uint32_t a = module_export(dll, name)) return a;
+    std::string key = module_key(dll) + "!" + name;
+    auto it = registry().find(key);
+    if (it == registry().end() && module_key(dll) == "msvcrt") it = registry().find("msvcr71!" + name);
+    if (it == registry().end()) return 0;
+    if (it->second.data) return it->second.data();
+    static std::map<std::string, uint32_t> made;
+    static std::mutex mu;
+    std::lock_guard<std::mutex> lock(mu);
+    uint32_t &t = made[key];
+    if (!t) t = make_thunk(key, it->second.stack_bytes, it->second.fn);
+    return t;
+}
+
+void bind_imports() {
+    for (Module *m : modules()) {
+        int missing = 0;
+        for (uint32_t i = 0; i < m->import_count; i++) {
+            const ImportSlot &s = m->imports[i];
+            uint32_t v = resolve_import(s.dll, s.name);
+            if (!v) {
+                v = make_thunk(module_key(s.dll) + "!" + s.name, -2, nullptr);
+                missing++;
+            }
+            st32(s.iat, v);
+        }
+        log("recomp: %s: %u imports, %d without a shim", m->name.c_str(), m->import_count, missing);
+    }
+}
+
+void attach_dlls(CPU *c) {
+    for (Module *m : modules()) {
+        if (!m->entry || m == modules().front()) continue;  // the exe comes first
+        uint32_t ok = call_guest(c, m->entry, {m->base, 1, 0});
+        log("recomp: %s DllMain(PROCESS_ATTACH) -> %u", m->name.c_str(), ok);
+    }
 }
 
 }  // namespace rt
+
+extern "C" void rt_cpuid(CPU *c) {
+    uint32_t leaf = c->r[0];
+    if (leaf == 0) {  // highest leaf 1, "GenuineIntel"
+        c->r[0] = 1;
+        c->r[3] = 0x756E6547;
+        c->r[2] = 0x49656E69;
+        c->r[1] = 0x6C65746E;
+    } else if (leaf == 1) {  // family 6; FPU, TSC, CX8, CMOV only: no MMX, SSE or 3DNow!
+        c->r[0] = 0x00000680;
+        c->r[3] = 0;
+        c->r[1] = 0;
+        c->r[2] = (1u << 0) | (1u << 4) | (1u << 8) | (1u << 15);
+    } else {
+        c->r[0] = c->r[1] = c->r[2] = c->r[3] = 0;
+    }
+}
+
+extern "C" void rt_rdtsc(CPU *c) {
+    uint64_t t = rt::now_us() * 1000;
+    c->r[0] = uint32_t(t);
+    c->r[2] = uint32_t(t >> 32);
+}

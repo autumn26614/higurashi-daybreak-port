@@ -71,15 +71,25 @@ CPU *new_cpu(uint32_t stack_size);   // CPU with its own guest stack and TIB
 void free_cpu(CPU *c);
 uint32_t thread_id();
 
-// ---- program ----
-struct Program {
+// ---- modules ----
+// A translated PE: its generated tables, and the base the translator assumed.
+struct Module {
+    std::string name;  // file name, e.g. "d3dx9_25.dll"
+    uint32_t base;
     const FnEntry *table;
     uint32_t count;
     const ImportSlot *imports;
     uint32_t import_count;
+    const ExportSlot *exports;
+    uint32_t export_count;
+    uint32_t entry = 0;  // set by load_module
 };
-// Maps `exe` (path on the host) into guest memory and binds its imports.
-uint32_t load_exe(const std::string &exe, const Program &p);  // returns the entry point
+// Maps the file at `path` at m.base (applying relocations if the file prefers another base)
+// and makes its functions callable. Call bind_imports once every module is loaded.
+void load_module(const std::string &path, Module &m);
+void bind_imports();
+// Runs the DLL entry points (DLL_PROCESS_ATTACH) of the loaded DLLs.
+void attach_dlls(CPU *c);
 GuestFn lookup(uint32_t addr);
 
 [[noreturn]] void fatal(const char *fmt, ...);

@@ -204,9 +204,15 @@ class Lifter:
 
     def insn(self, entry, ins, labels):
         m = ins.mnemonic
+        if m.startswith('lock '):
+            m = m[5:]  # guest threads run on host threads; refcount updates are rare and short
         ops = ins.operands
         a = ins.address
         nxt = a + ins.size
+        if m == 'cpuid':
+            return ['OUT; rt_cpuid(c); IN;']
+        if m == 'rdtsc':
+            return ['OUT; rt_rdtsc(c); IN;']
         if m.startswith('f') or m in ('wait', 'fwait'):
             return self.x87(ins)
         if m == 'mov':
@@ -295,16 +301,21 @@ class Lifter:
             return ['fl_unpack(&f, ld32(esp)); esp += 4;']
         if m in ('clc', 'stc', 'cmc'):
             return [{'clc': 'f.cf = 0;', 'stc': 'f.cf = 1;', 'cmc': 'f.cf = !f.cf;'}[m]]
-        if m in ('cld', 'nop'):
+        if m == 'nop':
             return []
+        if m in ('cld', 'std'):
+            return ['df = %d;' % (m == 'std')]
         if m == 'leave':
             return ['esp = ebp; ebp = ld32(esp); esp += 4;']
-        if m.startswith('rep ') or m in ('movsb', 'movsd', 'movsw', 'stosb', 'stosd', 'stosw', 'lodsb', 'lodsd'):
-            return self.string(ins)
+        if m.startswith('rep') or (m[:-1] in self.STRING_OPS and m[-1] in 'bwd'):
+            return self.string(ins, m)
         if m.startswith('j') and m != 'jmp' and m[1:] in CC:
             return ['if (%s) { %s }' % (self.cc(m[1:]), self.target_code(entry, ops[0].imm, labels))]
         if m == 'jecxz':
             return ['if (ecx == 0) { %s }' % self.target_code(entry, ops[0].imm, labels)]
+        if m in ('loop', 'loope', 'loopne'):
+            cond = {'loop': 'ecx', 'loope': 'ecx && f.zf', 'loopne': 'ecx && !f.zf'}[m]
+            return ['ecx--; if (%s) { %s }' % (cond, self.target_code(entry, ops[0].imm, labels))]
         if m == 'jmp':
             op = ops[0]
             if op.type == X.X86_OP_IMM:
@@ -387,27 +398,41 @@ class Lifter:
         return ['{ uint32_t n = eax & 0xFFFFu; uint32_t d = %s; %s '
                 'eax = (eax & 0xFFFF0000u) | ((n / d) & 0xFFu) | (((n %% d) & 0xFFu) << 8); }' % (s, trap)]
 
-    def string(self, ins):
-        m = ins.mnemonic
-        rep = m.startswith('rep ')
-        base = m[4:] if rep else m
-        if base[-1] not in 'bwd' or base[:-1] not in ('movs', 'stos', 'lods'):
+    STRING_OPS = ('movs', 'stos', 'lods', 'scas', 'cmps')
+
+    def string(self, ins, m):
+        rep = ''
+        base = m
+        for p in ('repne ', 'repnz ', 'repe ', 'repz ', 'rep '):
+            if m.startswith(p):
+                rep, base = p.strip(), m[len(p):]
+                break
+        if any('xmm' in ins.reg_name(o.reg) for o in ins.operands if o.type == X.X86_OP_REG):
+            raise Unsupported('SSE')
+        if base[-1] not in 'bwd' or base[:-1] not in self.STRING_OPS:
             raise Unsupported('string op')
         w = {'b': 1, 'w': 2, 'd': 4}[base[-1]]
         bits = 8 * w
-        if base.startswith('movs'):
-            step = 'st%d(edi, ld%d(esi)); esi += %d; edi += %d;' % (bits, bits, w, w)
-        elif base.startswith('stos'):
-            v = 'eax' if w == 4 else '(eax & %s)' % hx((1 << bits) - 1)
-            step = 'st%d(edi, %s); edi += %d;' % (bits, v, w)
-        else:
-            if rep:
-                raise Unsupported('rep lods')
+        d = '(df ? %s : %du)' % (hx(-w), w)
+        acc = 'eax' if w == 4 else '(eax & %s)' % hx((1 << bits) - 1)
+        op = base[:-1]
+        if op == 'movs':
+            step = 'st%d(edi, ld%d(esi)); esi += %s; edi += %s;' % (bits, bits, d, d)
+        elif op == 'stos':
+            step = 'st%d(edi, %s); edi += %s;' % (bits, acc, d)
+        elif op == 'lods':
             reg = {1: 'al', 2: 'ax', 4: 'eax'}[w]
-            return ['{ uint32_t v = ld%d(esi); esi += %d; %s }' % (bits, w, self.reg_write_name(reg, 'v'))]
-        if rep:
-            return ['while (ecx) { %s ecx--; }' % step]
-        return [step]
+            step = '{ uint32_t v = ld%d(esi); esi += %s; %s }' % (bits, d, self.reg_write_name(reg, 'v'))
+        elif op == 'scas':
+            step = '(void)x_sub(&f, %s, ld%d(edi), %d); edi += %s;' % (acc, bits, w, d)
+        else:
+            step = '(void)x_sub(&f, ld%d(esi), ld%d(edi), %d); esi += %s; edi += %s;' % (bits, bits, w, d, d)
+        if not rep:
+            return [step]
+        if op in ('scas', 'cmps'):
+            stop = 'if (!f.zf) break;' if rep in ('rep', 'repe', 'repz') else 'if (f.zf) break;'
+            return ['while (ecx) { %s ecx--; %s }' % (step, stop)]
+        return ['while (ecx) { %s ecx--; }' % step]
 
     def reg_write_name(self, n, v):
         if n == 'eax':
@@ -623,6 +648,13 @@ def main():
         for e in entries:
             fo.write('    {%s, %s},\n' % (hx(e), lifter.fname(e)))
         fo.write('};\n')
+    with open(os.path.join(out_dir, prefix + '_exports.c'), 'w') as fo:
+        fo.write('/* Generated. Exports: (name or NULL, ordinal, address). */\n#include "x86.h"\n')
+        rows = ['    {%s, %d, %s},' % ('"%s"' % n if n else 'NULL', o, hx(img.base + rva))
+                for rva, n, o in img.pe.exports()]
+        fo.write('const uint32_t %s_export_count = %d;\n' % (prefix, len(rows)))
+        fo.write('const ExportSlot %s_exports[] = {\n%s\n    {NULL, 0, 0}\n};\n' % (prefix, '\n'.join(rows)))
+        fo.write('const uint32_t %s_base = %s;\n' % (prefix, hx(img.base)))
     with open(os.path.join(out_dir, prefix + '_imports.c'), 'w') as fo:
         fo.write('/* Generated. Import address table slots: (IAT address, DLL, name or #ordinal). */\n')
         fo.write('#include "x86.h"\n')

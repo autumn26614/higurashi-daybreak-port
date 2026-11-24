@@ -17,11 +17,13 @@ RT_OBJ := $(RUNTIME:runtime/%.cpp=$(BUILD)/rt/%.o)
 all: $(GEN)/stamp
 	$(MAKE) link
 
+# The exe at its own base; d3dx9_25.dll (which prefers the same base) moved to 0x10000000.
 $(GEN)/stamp: tools/lift.py tools/discover.py tools/pe.py
-	$(PYTHON) tools/lift.py "$(GAME)/daybreak.exe" $(GEN)
+	$(PYTHON) tools/lift.py "$(GAME)/daybreak.exe" $(GEN) --prefix F
+	$(PYTHON) tools/lift.py "$(GAME)/d3dx9_25.dll" $(GEN) --prefix X --base 0x10000000
 	touch $@
 
-GEN_C = $(wildcard $(GEN)/F_*.c)
+GEN_C = $(wildcard $(GEN)/F_*.c $(GEN)/X_*.c)
 GEN_OBJ = $(GEN_C:$(GEN)/%.c=$(BUILD)/gen/%.o)
 
 $(BUILD)/gen/%.o: $(GEN)/%.c runtime/x86.h $(GEN)/stamp
