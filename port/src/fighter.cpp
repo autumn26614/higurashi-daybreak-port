@@ -79,6 +79,9 @@ void walk_heading(Fighter& f) {
 void regen(Fighter& f) { f.stamina = std::min(1000, f.stamina + 40); }
 void spend(Fighter& f, int n) { f.stamina = std::max(0, f.stamina - n); }
 
+void voice(Fighter& f, int id) { f.sounds.push_back({0, SoundEvent::Voice, id}); }  // 0x4256D0
+void se(Fighter& f, int id) { f.sounds.push_back({0, SoundEvent::Effect, id}); }     // 0x4338D0
+
 void to_fall(Fighter& f) {
     f.gravity = 0.5f;
     set_state(f, 43);
@@ -137,6 +140,7 @@ void reaction(Fighter& f) {
             return to_air_hit(f);
         }
         if (fr == 0) {
+            voice(f, 8);
             f.extra = 0;
             f.turn_rate = 0;
             f.speed = s <= 101 ? -15.f : (s == 102 || s == 134) ? -20.f : 0.f;
@@ -197,6 +201,7 @@ void reaction(Fighter& f) {
     case 115:
     case 116:
         if (first) {
+            voice(f, f.hp == 0 ? 10 : 9);
             f.extra = 0;
             f.turn_rate = 0;
             f.speed = -f.knock[0] * 0.01f;
@@ -205,6 +210,7 @@ void reaction(Fighter& f) {
         }
         if (landed) {
             f.vy = 0;
+            se(f, 40);
             set_state(f, 118);
             return;
         }
@@ -401,6 +407,8 @@ void update_state(Fighter& f, const Fighter& o) {
             f.speed = 17;
         }
         if (st == 1) {
+            if (fr % 22 == 6) se(f, 5);
+            if (fr % 22 == 17) se(f, 6);
             f.turn_rate = 4;
             f.speed = 17;
             walk_heading(f);
@@ -453,6 +461,7 @@ void update_state(Fighter& f, const Fighter& o) {
             f.scratch = 0;
         }
         if (st == 1) {
+            if (fr == 0 && f.scratch == 0) se(f, 2);
             f.turn_rate = 2;
             f.speed = 16.5f;
             ++f.scratch;
@@ -556,16 +565,28 @@ void update_state(Fighter& f, const Fighter& o) {
     switch (s) {
     case 300:
         if (first) f.speed = 20;
+        if (st == 2 && fr == 0) {
+            se(f, 60);
+            voice(f, 1);
+        }
         if (st < 2) turn(f, 0, 7);
         if (st == 1 && fr > 2 && (dist2(f, o) < 60000 || fr > 10)) set_step(f, 2);
         if (st == 2) f.speed = std::max(0.f, f.speed - 1.5f);
         break;
     case 301:
+        if (fr == 3) {
+            se(f, 61);
+            voice(f, 2);
+        }
         if (fr < 8) turn(f, 0, 20);
         if (fr == 1) f.speed = 10;
         if (fr == 16) f.speed = 0;
         break;
     case 302:
+        if (fr == 10) {
+            se(f, 62);
+            voice(f, 3);
+        }
         if (fr < 12) {
             f.speed = 0;
             turn(f, 0, 5);
@@ -575,6 +596,10 @@ void update_state(Fighter& f, const Fighter& o) {
         break;
     case 310:
         if (first) f.speed = 25;
+        if (st == 2 && fr == 4) {
+            se(f, 62);
+            voice(f, 2);
+        }
         if (st == 0) turn(f, 0, 20);
         if (st == 1) set_step(f, 2);
         if (st == 2) {
@@ -585,6 +610,10 @@ void update_state(Fighter& f, const Fighter& o) {
         break;
     case 311:
         if (fr == 0) f.speed = 20;
+        if (fr == 13) {
+            se(f, 62);
+            voice(f, 3);
+        }
         if (st == 0) {
             f.speed = std::max(0.f, f.speed - 0.2f);
             if (fr < 20) turn(f, 0, 10);
@@ -602,6 +631,10 @@ void update_state(Fighter& f, const Fighter& o) {
             f.vy = std::clamp(f.vy, -3.f, 3.f);
             f.speed = 15;
         }
+        if (st == 2 && fr == 0) {
+            se(f, 62);
+            voice(f, 1);
+        }
         if (st < 2) turn(f, 0, 3);
         if (st == 1 && fr > 10) set_step(f, 2);
         if (f.step == 2 && f.frame > 5) {
@@ -610,12 +643,17 @@ void update_state(Fighter& f, const Fighter& o) {
         }
         break;
     case 330:
+        if (st == 2 && fr == 6) {
+            se(f, 62);
+            voice(f, 2);
+        }
         if (st < 2) turn(f, 0, 5);
         if (st == 1) f.speed = 30;
         if (st == 2) f.speed = std::max(0.f, f.speed - 2.f);
         break;
     case 331:
         if (first) f.speed = 17.5f;
+        if (st == 2 && fr == 10) voice(f, 2);
         if (st < 2) turn(f, 0, 20);
         if (st == 1 && fr > 2 && (dist2(f, o) < 90000 || fr > 20)) set_step(f, 2);
         if (st >= 2) f.speed = std::max(0.f, f.speed - 0.35f);
@@ -833,6 +871,7 @@ void hits(Fighter& a, Fighter& d) {
             d.stamina = std::max(0, d.stamina - std::max(0, rec->damage()) / 5);
             d.knock[0] = float(rec->param(68)) * 0.5f;
             if (set_state(d, d.stamina > 0 ? 391 : 392)) d.speed = -d.knock[0] * 0.01f - 4.f;
+            voice(d, 13);
             return;
         }
     }
@@ -841,6 +880,7 @@ void hits(Fighter& a, Fighter& d) {
     // knock-back (68 / 72, x100) and the hit-stop of attacker and defender (36 / 40).
     d.knock[0] = float(rec->param(68));
     d.knock[1] = float(rec->param(72));
+    if (d.hp == 0) voice(a, 4);  // attackKO
     int react = d.ground && d.hp > 0 ? rec->param(52) : rec->param(56);
     if (!move_of(d, react)) react = d.ground && d.hp > 0 ? 100 : 113;
     d.heading = 0;  // approx.: square up to the attacker
@@ -1064,8 +1104,16 @@ void Battle::start(const CharDef* a, std::vector<int> frames_a, const float spaw
         f.floor = spawns[i][1];
         set_state(f, 0);
     }
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < 2; ++i) {
         f[size_t(i)].facing = facing_yaw(f[size_t(i)].pos, f[size_t(1 - i)].pos) / kRad;
+        events.push_back({i, SoundEvent::Voice, 7});  // battlestart
+    }
+}
+
+std::vector<SoundEvent> Battle::take_events() {
+    std::vector<SoundEvent> out;
+    out.swap(events);
+    return out;
 }
 
 void Battle::set_floor(Floor fl) {
@@ -1119,6 +1167,11 @@ void Battle::step(const Pad* p1, const Pad* p2) {
         // HP drain bar (0x422F60): follows HP down at 200 per frame.
         if (me.hp < me.hp_bar) me.hp_bar = std::max(me.hp, me.hp_bar - 200);
         if (me.hp == 0 && winner < 0) winner = 1 - i;
+        for (SoundEvent e : me.sounds) {
+            e.fighter = i;
+            events.push_back(e);
+        }
+        me.sounds.clear();
     }
     ++frame;
 }

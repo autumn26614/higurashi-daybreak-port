@@ -45,6 +45,13 @@ final class BattleGame {
         return db_battle_camera(battle, Int32(i), &c) == 1 ? StageCamera(c) : nil
     }
 
+    /// Voices and sound effects the fighters started since the last call.
+    func takeSounds() -> [DBSoundEvent] {
+        var buf = [DBSoundEvent](repeating: DBSoundEvent(), count: 32)
+        let n = Int(db_battle_take_sounds(battle, &buf, Int32(buf.count)))
+        return Array(buf.prefix(n))
+    }
+
     /// nil while both stand.
     var winner: Int? {
         let w = Int(db_battle_winner(battle))
@@ -99,5 +106,75 @@ final class BattleControls: ObservableObject {
         // The game reads directions digitally.
         func axis(_ f: Float) -> Int32 { f < -0.4 ? -1 : f > 0.4 ? 1 : 0 }
         return DBPad(x: axis(v.x), y: axis(v.y), buttons: buttons)
+    }
+}
+
+/// Plays the battle's voices (one player per fighter: a new line cuts the last) and sound
+/// effects (a few players in turn). Decoded clips are cached; a voice category has variants
+/// 000, 001, ... and one is picked at random, as the game does (0x43A8F0).
+final class BattleSounds {
+    private let models: [CharacterModel]
+    private let voiceDirs: [String]
+    private var cache: [String: DecodedSound] = [:]
+    private var missing: Set<String> = []
+    private var variants: [String: Int] = [:]
+    private let voices = [SoundPlayer(), SoundPlayer()]
+    private let effects = [SoundPlayer(), SoundPlayer(), SoundPlayer()]
+    private var nextEffect = 0
+
+    init(models: [CharacterModel]) {
+        self.models = models
+        voiceDirs = models.map { BattleSounds.voiceDir(model: $0.name) }
+    }
+
+    /// data/rena/00.X and data/rena_B/00.X -> data/voice/rena
+    static func voiceDir(model: String) -> String {
+        let parts = model.split(separator: "/")
+        var name = parts.count >= 2 ? String(parts[parts.count - 2]) : model
+        if name.lowercased().hasSuffix("_b") { name.removeLast(2) }
+        return "data/voice/" + name
+    }
+
+    private func load(_ entry: String) -> DecodedSound? {
+        if let s = cache[entry] { return s }
+        if missing.contains(entry) { return nil }
+        guard let s = models.first?.sound(entry) else {
+            missing.insert(entry)
+            return nil
+        }
+        cache[entry] = s
+        return s
+    }
+
+    private func voice(fighter: Int, category: String) -> DecodedSound? {
+        let dir = voiceDirs[fighter] + "/" + category + "/"
+        let count: Int
+        if let c = variants[dir] {
+            count = c
+        } else {
+            var c = 0
+            while c < 16, load(dir + String(format: "%03d.wav", c)) != nil { c += 1 }
+            variants[dir] = c
+            count = c
+        }
+        guard count > 0 else { return nil }
+        return load(dir + String(format: "%03d.wav", Int.random(in: 0..<count)))
+    }
+
+    func play(_ events: [DBSoundEvent]) {
+        for e in events {
+            if e.kind == 0 {
+                guard e.fighter >= 0, Int(e.fighter) < voiceDirs.count, let name = db_voice_category(e.id),
+                      let s = voice(fighter: Int(e.fighter), category: String(cString: name)) else { continue }
+                voices[Int(e.fighter)].play(s)
+            } else if let s = load(String(format: "data/se/%03d.wav", Int(e.id))) {
+                effects[nextEffect].play(s)
+                nextEffect = (nextEffect + 1) % effects.count
+            }
+        }
+    }
+
+    func stop() {
+        (voices + effects).forEach { $0.stop() }
     }
 }

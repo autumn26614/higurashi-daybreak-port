@@ -29,6 +29,7 @@ struct BattleView: View {
     @State private var errorText: String?
     @StateObject private var controls = BattleControls()
     @State private var music = SoundPlayer()
+    @State private var sounds: BattleSounds?
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
 
     /// Character models only: data/<name>/0N.X outside the item / effect folders.
@@ -93,7 +94,10 @@ struct BattleView: View {
             }
         }
         .onReceive(tick) { _ in frame() }
-        .onDisappear { music.stop() }
+        .onDisappear {
+            music.stop()
+            sounds?.stop()
+        }
     }
 
     private func statusLine(_ s: StageScene) -> String {
@@ -190,6 +194,8 @@ struct BattleView: View {
         follow = nil
         do {
             game = try BattleGame(fighters[0], fighters[1], spawns: scene.spawns, stage: scene.stage)
+            sounds?.stop()
+            sounds = BattleSounds(models: fighters)
         } catch {
             game = nil
             if fight { errorText = error.localizedDescription }
@@ -244,6 +250,7 @@ struct BattleView: View {
         guard let scene, let renderer, fighters.count == 2, scene.spawns.count >= 2 else { return }
         if fight, let game {
             if winner == nil { game.step(p1: controls.pad(), p2: nil) }
+            sounds?.play(game.takeSounds())
             let states = [game.fighter(0), game.fighter(1)]
             hud = states
             if winner == nil, let w = game.winner {

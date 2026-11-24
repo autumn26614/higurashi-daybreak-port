@@ -232,6 +232,17 @@ int main() {
     check(bt.f[0].state == 300, "melee button -> 300");
     for (int i = 0; i < 80 && bt.f[1].hp == 10000; ++i) run(idle, 1);
     check(bt.f[1].hp == 8500, "one hit for 1500");
+    {
+        const std::vector<SoundEvent> ev = bt.take_events();
+        auto has = [&](int who, SoundEvent::Kind k, int id) {
+            for (const auto& e : ev)
+                if (e.fighter == who && e.kind == k && e.id == id) return true;
+            return false;
+        };
+        check(has(0, SoundEvent::Voice, 7) && has(1, SoundEvent::Voice, 7), "battle start voices");
+        check(has(0, SoundEvent::Effect, 60) && has(0, SoundEvent::Voice, 1), "swing sound and attackA voice");
+        check(bt.take_events().empty(), "events are taken once");
+    }
     check(bt.f[1].state == 100, "ground reaction from the record");
     check(bt.f[0].freeze > 0 && bt.f[1].freeze > 0, "hit-stop on both");
     const float before = dist();

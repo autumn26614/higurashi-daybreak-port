@@ -73,6 +73,14 @@ struct CpuState {
     int personality = 0;  // +0x308
 };
 
+// A voice (category id, table at 0x644900: 1 attackA, 8 damage, ...) or a sound effect
+// (data/se/%03d.wav) a fighter starts this frame.
+struct SoundEvent {
+    int fighter = 0;
+    enum Kind { Voice, Effect } kind = Voice;
+    int id = 0;
+};
+
 struct Fighter {
     const CharDef* def = nullptr;
     std::vector<int> anim_frames;  // length of each animation set in frames
@@ -97,6 +105,7 @@ struct Fighter {
     bool fresh = false;   // the step started this frame: its frame 0 is not skipped
     InputRecord in;
     CpuState ai;
+    std::vector<SoundEvent> sounds;  // started since the battle last collected them
 
     int anim() const;           // animation set of the current step
     float body_yaw() const;     // radians, for place_character
@@ -113,6 +122,9 @@ struct Battle {
     int winner = -1;  // set when a fighter is knocked out
     Floor floor;      // empty: flat floor at each spawn height
     Rng rng;          // the computer player's dice
+    std::vector<SoundEvent> events;  // sounds started since the last take_events()
+
+    std::vector<SoundEvent> take_events();
 
     // anim_frames: per character, the frame count of each of its model's animation sets.
     // models: the skeletons for attack spheres (nullptr: spheres in front of the attacker).

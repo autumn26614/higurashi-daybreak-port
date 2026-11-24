@@ -75,6 +75,12 @@ int main(int argc, char** argv) {
     }
     int pass = stage != checked_stage || (m0 == ex->m0 && t0 == ex->t0 && m1 == ex->m1 && t1 == ex->t1 && nt == ex->textures &&
                               ok == ex->resolved && first_jp == ex->first_jp && name_ok);
+    /* Voice categories: the game's alphabetical table. */
+    int voices_ok = strcmp(db_voice_category(1), "attackA") == 0 && strcmp(db_voice_category(8), "damage") == 0 &&
+                    strcmp(db_voice_category(38), "thank") == 0 && db_voice_category(39) == NULL &&
+                    db_voice_category(-1) == NULL;
+    if (!voices_ok) printf("voice category table wrong\n");
+    pass = pass && voices_ok;
     printf("%s (%s expectations)\n", pass ? "PASS" : "FAIL", mode);
     db_stage_report_free(r);
     return pass ? 0 : 1;

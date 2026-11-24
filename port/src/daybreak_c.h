@@ -186,6 +186,15 @@ void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2);
 int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out);
 /* The game's battle camera for fighter i (behind it, looking toward the other). */
 int32_t db_battle_camera(const DBBattle* b, int32_t i, DBCamera* out);
+/* Sounds the fighters started since the last call (it empties the list; at most max are
+ * written, the rest dropped). kind 0: voice category id (data/voice/<character>/<category>/,
+ * see db_voice_category), 1: sound effect data/se/%03d.wav. */
+typedef struct {
+    int32_t fighter, kind, id;
+} DBSoundEvent;
+int32_t db_battle_take_sounds(DBBattle* b, DBSoundEvent* out, int32_t max);
+/* Name of voice category id ("attackA", ...; the game's table at 0x644900), or NULL. */
+const char* db_voice_category(int32_t id);
 /* -1 while both stand, else the winner's index. */
 int32_t db_battle_winner(const DBBattle* b);
 

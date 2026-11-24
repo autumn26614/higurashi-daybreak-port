@@ -667,6 +667,28 @@ int32_t db_battle_camera(const DBBattle* b, int32_t i, DBCamera* out) {
     return 1;
 }
 
+int32_t db_battle_take_sounds(DBBattle* b, DBSoundEvent* out, int32_t max) {
+    if (!b) return 0;
+    const std::vector<db::battle::SoundEvent> ev = b->battle.take_events();
+    int32_t n = 0;
+    for (const auto& e : ev) {
+        if (!out || n >= max) break;
+        out[n++] = {e.fighter, e.kind == db::battle::SoundEvent::Voice ? 0 : 1, e.id};
+    }
+    return n;
+}
+
+const char* db_voice_category(int32_t id) {
+    // Alphabetical, as the exe lists them (0x644900, 16 bytes apart).
+    static const char* const names[] = {
+        "addattack", "attackA", "attackB",  "attackC",  "attackKO", "backattack", "backdamage", "battlestart",
+        "damage",    "damagedown", "damageKO", "fire",   "guard",    "guarded",    "HPcheck",    "intercept",
+        "missdamage", "nearLose", "nearWin", "oyashiro", "oyashiroB", "poison",    "provoke",    "recovery",
+        "reloadNG",  "reloadOK",  "revival",  "shotA",    "shotB",    "shotC",      "shotFinal",  "spark",
+        "specialA",  "specialB",  "tactics",  "tagback",  "tagfront", "tagOK",      "thank"};
+    return id >= 0 && size_t(id) < sizeof names / sizeof names[0] ? names[id] : nullptr;
+}
+
 int32_t db_battle_winner(const DBBattle* b) { return b ? b->battle.winner : -1; }
 
 int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out) {
