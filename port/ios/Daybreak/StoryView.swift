@@ -22,6 +22,16 @@ struct StoryView: View {
     }
 
     var body: some View {
+        if let art, !teams.isEmpty {
+            TeamSelectView(art: art, teams: teams, urls: urls, book: book!)
+        } else {
+            list
+        }
+    }
+
+    @State private var art: TeamSelectArt?
+
+    private var list: some View {
         List {
             if let errorText {
                 Text(errorText).foregroundStyle(.red).accessibilityIdentifier("error")
@@ -32,7 +42,7 @@ struct StoryView: View {
                 }
                 ForEach(teams) { entry in
                     NavigationLink {
-                        StoryRunView(urls: urls, book: book, team: entry.team)
+                        StoryRunView(urls: urls, book: book, team: entry.team, teamIndex: entry.index)
                     } label: {
                         VStack(alignment: .leading) {
                             Text("\(Self.characterName(entry.team.members.0)) & \(Self.characterName(entry.team.members.1))")
@@ -53,6 +63,8 @@ struct StoryView: View {
             case .success(let b):
                 book = b
                 teams = (0..<10).compactMap { i in b.team(i).map { StoryTeam(index: i, team: $0) } }
+                let urls = urls
+                art = await Task.detached { try? TeamSelectArt(urls: urls) }.value
             case .failure(let e):
                 errorText = e.localizedDescription
             }
@@ -72,6 +84,7 @@ struct StoryRunView: View {
     let urls: [URL]
     let book: TalkBook
     let team: DBTeam
+    var teamIndex = 0
 
     enum Phase: Equatable {
         case before(Int), battle(Int), after(Int), ending, end
@@ -124,6 +137,7 @@ struct StoryRunView: View {
                 scene(i, part: 1) { phase = next(after: i) }
             case .ending:
                 MovieView(urls: urls, entry: movie) { phase = .end }
+                    .onAppear { StoryProgress.clear(team: teamIndex) }
             case .end:
                 VStack(spacing: 16) {
                     Text("Fin").font(.largeTitle.bold())
@@ -163,5 +177,154 @@ struct StoryRunView: View {
                 Button("Continue", action: done)
             }
         }
+    }
+}
+
+/// Cleared story teams, kept between launches. The game opens teams as they are cleared:
+/// clamp(cleared + 1, 3, 7) of the base seven (DAT_0065F848 & 0xF); Kai's three follow.
+enum StoryProgress {
+    private static let key = "story.cleared"
+
+    static var cleared: Set<Int> { Set(UserDefaults.standard.array(forKey: key) as? [Int] ?? []) }
+
+    static func clear(team: Int) {
+        UserDefaults.standard.set(Array(cleared.union([team])).sorted(), forKey: key)
+    }
+
+    static func unlocked(available: [Int]) -> [Int] {
+        let base = available.filter { $0 < 7 }, kai = available.filter { $0 >= 7 }
+        let open = min(7, max(3, cleared.filter { $0 < 7 }.count + 1))
+        return Array(base.prefix(open)) + (base.count <= open ? kai : [])
+    }
+}
+
+/// The team select's pictures (scene 5, ctor 0x40B0F0): data/teamselect/bg00 (800x600),
+/// t%02d (512x512, drawn centred at (400, 300)) and the name plates p00 (256x160 cells, team i
+/// at column i / 3, row i % 3) and p01 (team 6).
+final class TeamSelectArt {
+    let background: CGImage?
+    let pictures: [CGImage?]
+    let plates: [CGImage?]
+    private let archives: OpaquePointer
+    private let scopedURLs: [URL]
+
+    init(urls: [URL]) throws {
+        let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
+        var err = [CChar](repeating: 0, count: 256)
+        guard let a = withCPaths(urls.map(\.path), { db_archives_open($0, $1, &err, Int32(err.count)) }) else {
+            scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+            throw ReportError.open(message(err))
+        }
+        archives = a
+        scopedURLs = scoped
+        background = TitleArt.image(a, "data/teamselect/bg00.bmp", crop: nil)
+        pictures = (0..<7).map { TitleArt.image(a, String(format: "data/teamselect/t%02d.bmp", $0), crop: nil) }
+        let sheet = TitleArt.image(a, "data/teamselect/p00.bmp", crop: nil)
+        var plates: [CGImage?] = (0..<6).map { i in
+            sheet?.cropping(to: CGRect(x: (i / 3) * 256, y: (i % 3) * 160, width: 256, height: 160))
+        }
+        plates.append(TitleArt.image(a, "data/teamselect/p01.bmp", crop: CGRect(x: 0, y: 0, width: 256, height: 160)))
+        self.plates = plates
+        if background == nil { throw ReportError.open("no team select pictures") }
+    }
+
+    deinit {
+        db_archives_free(archives)
+        scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+    }
+
+    func sound(_ entry: String) -> DecodedSound? { try? DecodedSound.load(archives, Array(entry.utf8)) }
+}
+
+/// The team select on the game's 800x600 canvas. approx.: the plate column's exact sprites
+/// and scale are not decoded; plates sit at half size at x 156, y 50 + 70 k as the list does.
+struct TeamSelectView: View {
+    let art: TeamSelectArt
+    let teams: [StoryTeam]
+    let urls: [URL]
+    let book: TalkBook
+    @State private var cursor = 0
+    @State private var chosen: StoryTeam?
+    @State private var music = SoundPlayer(kind: .music)
+    @State private var effects = SoundPlayer()
+
+    private var open: [StoryTeam] {
+        let ids = StoryProgress.unlocked(available: teams.map(\.index))
+        return teams.filter { ids.contains($0.index) }
+    }
+
+    var body: some View {
+        GeometryReader { g in
+            let scale = min(g.size.width / 800, g.size.height / 600)
+            ZStack(alignment: .topLeading) {
+                Color.black
+                ZStack(alignment: .topLeading) {
+                    if let b = art.background { picture(b, x: 0, y: 0, w: 800, h: 600) }
+                    if cursor < open.count, open[cursor].index < art.pictures.count, let t = art.pictures[open[cursor].index] {
+                        picture(t, x: 400 - 256, y: 300 - 256, w: 512, h: 512)
+                            .onTapGesture { start() }
+                    }
+                    ForEach(Array(open.enumerated()), id: \.offset) { k, team in
+                        let plate = team.index < art.plates.count ? art.plates[team.index] : nil
+                        Group {
+                            if let plate {
+                                picture(plate, x: 156 - 64, y: 50 + 70 * CGFloat(k) - 20, w: 128, h: 80)
+                            } else {
+                                Text("\(StoryView.characterName(team.team.members.0)) & \(StoryView.characterName(team.team.members.1))")
+                                    .foregroundStyle(.white).offset(x: 40, y: 50 + 70 * CGFloat(k))
+                            }
+                        }
+                        .opacity(k == cursor ? 1 : 0.5)
+                        .onTapGesture { pick(k) }
+                        .accessibilityElement()
+                        .accessibilityLabel("Team \(team.index + 1)")
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("team.\(team.index)")
+                    }
+                }
+                .frame(width: 800, height: 600, alignment: .topLeading)
+                .clipped()
+                .scaleEffect(scale, anchor: .topLeading)
+                .offset(x: (g.size.width - 800 * scale) / 2, y: (g.size.height - 600 * scale) / 2)
+            }
+        }
+        .ignoresSafeArea()
+        .navigationTitle("Story")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: Binding(get: { chosen != nil }, set: { if !$0 { chosen = nil } })) {
+            if let chosen {
+                StoryRunView(urls: urls, book: book, team: chosen.team, teamIndex: chosen.index)
+            }
+        }
+        .task { playMusic() }
+        .onChange(of: chosen?.index) { c in if c == nil { playMusic() } else { music.stop() } }
+        .onDisappear { music.stop() }
+    }
+
+    private func picture(_ img: CGImage, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> some View {
+        Image(decorative: img, scale: 1).resizable().frame(width: w, height: h).offset(x: x, y: y)
+    }
+
+    private func playMusic() {
+        let art = art, player = music
+        Task.detached {
+            let song = art.sound("data/bgm/select01.ogg")
+            await MainActor.run { if let song { player.play(song) } }
+        }
+    }
+
+    private func pick(_ k: Int) {
+        if k == cursor {
+            start()
+        } else {
+            cursor = k
+            if let s = art.sound("data/sysse/002.wav") { effects.play(s) }
+        }
+    }
+
+    private func start() {
+        guard cursor < open.count else { return }
+        if let s = art.sound("data/sysse/000.wav") { effects.play(s) }
+        chosen = open[cursor]
     }
 }

@@ -40,7 +40,7 @@ final class TitleArt {
         menu?.cropping(to: CGRect(x: chosen ? 0 : 192, y: item * 48, width: 192, height: 48))
     }
 
-    private static func image(_ a: OpaquePointer, _ name: String, crop: CGRect?) -> CGImage? {
+    static func image(_ a: OpaquePointer, _ name: String, crop: CGRect?) -> CGImage? {
         var err = [CChar](repeating: 0, count: 256)
         let b = Array(name.utf8)
         let img = b.withUnsafeBufferPointer { p in
