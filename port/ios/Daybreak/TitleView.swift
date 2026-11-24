@@ -67,7 +67,7 @@ struct TitleView: View {
     @State private var art: TitleArt?
     @State private var cursor = 0
     @State private var open: Int?
-    @State private var music = SoundPlayer()
+    @State private var music = SoundPlayer(kind: .music)
     @State private var effects = SoundPlayer()
     @State private var notice: String?
     @Environment(\.dismiss) private var dismiss
@@ -127,6 +127,7 @@ struct TitleView: View {
         switch open {
         case 0: StoryView(urls: urls)
         case 1: BattleView(urls: urls)
+        case 3: OptionsView()
         case 4: ControlsHelp()
         default: EmptyView()
         }
@@ -153,16 +154,40 @@ struct TitleView: View {
         }
         if let s = art?.sound("data/sysse/000.wav") { effects.play(s) }
         switch i {
-        case 0, 1, 4:
+        case 0, 1, 3, 4:
             notice = nil
             open = i
         case 2:
             notice = "Network play (DirectPlay) is not part of the port."
-        case 3:
-            notice = "Options are not done yet."
         default:
             music.stop()
             dismiss()  // Exit: back to the game files screen
+        }
+    }
+}
+
+/// Options: the volumes of music, voices and sound effects (kept between launches).
+struct OptionsView: View {
+    @AppStorage("volume.music") private var music = 1.0
+    @AppStorage("volume.voice") private var voice = 1.0
+    @AppStorage("volume.effect") private var effect = 1.0
+
+    var body: some View {
+        Form {
+            Section("Volume") {
+                slider("Music", $music, id: "volumeMusic")
+                slider("Voices", $voice, id: "volumeVoice")
+                slider("Sound effects", $effect, id: "volumeEffect")
+            }
+        }
+        .navigationTitle("Options")
+    }
+
+    private func slider(_ title: String, _ value: Binding<Double>, id: String) -> some View {
+        HStack {
+            Text(title)
+            Slider(value: value, in: 0...1).accessibilityIdentifier(id)
+            Text("\(Int((value.wrappedValue * 100).rounded()))").monospacedDigit().frame(width: 36, alignment: .trailing)
         }
     }
 }

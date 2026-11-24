@@ -52,8 +52,8 @@ struct TalkView: View {
     @State private var image: CGImage?
     @State private var errorText: String?
     @State private var background: [UInt8]?
-    @State private var player = SoundPlayer()
-    @State private var musicPlayer = SoundPlayer()
+    @State private var player = SoundPlayer(kind: .voice)
+    @State private var musicPlayer = SoundPlayer(kind: .music)
     @State private var pageFrame = 0  // frames since the page opened
     @State private var settle = 0     // frames its portrait moves take
     @State private var playingMusic: [UInt8] = []

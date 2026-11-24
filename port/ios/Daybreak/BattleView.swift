@@ -47,7 +47,7 @@ struct BattleView: View {
     @State private var loading = false
     @State private var errorText: String?
     @StateObject private var controls = BattleControls()
-    @State private var music = SoundPlayer()
+    @State private var music = SoundPlayer(kind: .music)
     @State private var sounds: BattleSounds?
     @State private var bulletModels: [String: CharacterModel] = [:]  // by archive entry
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()

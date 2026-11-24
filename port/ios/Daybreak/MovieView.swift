@@ -63,6 +63,7 @@ final class MoviePlayer: ObservableObject {
         guard rate > 0, let format = AVAudioFormat(standardFormatWithSampleRate: Double(rate), channels: 2) else { return }
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
+        node.volume = SoundKind.music.volume
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? engine.start()
         node.play()

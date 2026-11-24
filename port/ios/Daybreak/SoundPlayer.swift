@@ -29,13 +29,26 @@ struct DecodedSound {
     }
 }
 
+/// Which volume setting a player follows (Options).
+enum SoundKind: String {
+    case music, voice, effect
+
+    /// The saved volume, 0...1 (1 if never set).
+    var volume: Float {
+        let key = "volume." + rawValue
+        return UserDefaults.standard.object(forKey: key) == nil ? 1 : Float(UserDefaults.standard.double(forKey: key))
+    }
+}
+
 /// Plays one sound at a time: once, or intro then the loop region forever (music).
 final class SoundPlayer {
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private var format: AVAudioFormat?
+    let kind: SoundKind
 
-    init() {
+    init(kind: SoundKind = .effect) {
+        self.kind = kind
         engine.attach(node)
         try? AVAudioSession.sharedInstance().setCategory(.playback)
     }
@@ -80,6 +93,7 @@ final class SoundPlayer {
         } else if let all = buffer(s, from: 0, to: s.frames, format: fmt) {
             node.scheduleBuffer(all)
         }
+        node.volume = kind.volume
         node.play()
     }
 

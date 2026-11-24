@@ -76,6 +76,12 @@ final class MediaTests: XCTestCase {
         XCTAssertEqual(StoryView.characterName(2), "Keiichi")
         XCTAssertEqual(StoryView.definition(0), "data/rena/00.dat")
         XCTAssertNil(StoryView.definition(99))
+        // Volumes: 1 until set, then the saved value.
+        UserDefaults.standard.removeObject(forKey: "volume.voice")
+        XCTAssertEqual(SoundKind.voice.volume, 1)
+        UserDefaults.standard.set(0.25, forKey: "volume.voice")
+        XCTAssertEqual(SoundKind.voice.volume, 0.25, accuracy: 1e-6)
+        UserDefaults.standard.removeObject(forKey: "volume.voice")
         // No touches, keys or controller: a neutral pad.
         let pad = BattleControls().pad()
         XCTAssertEqual(pad.x, 0)

@@ -180,7 +180,7 @@ final class BattleSounds {
     init(models: [CharacterModel]) {
         self.models = models
         voiceDirs = models.map { BattleSounds.voiceDir(model: $0.name) }
-        voices = models.map { _ in SoundPlayer() }
+        voices = models.map { _ in SoundPlayer(kind: .voice) }
     }
 
     /// data/rena/00.X and data/rena_B/00.X -> data/voice/rena
