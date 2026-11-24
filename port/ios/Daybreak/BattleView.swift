@@ -1,9 +1,11 @@
 import SwiftUI
+import MetalKit
 import simd
 
-/// A battle set-up without gameplay: a stage with two characters standing on the 1P and 2P
-/// spawn points (env.dat), facing each other and playing one animation set, drawn with
-/// Metal (stage passes, then the characters with their toon shading and outlines).
+/// A stage with two characters on the 1P and 2P spawn points (env.dat). "Fight" runs the
+/// battle core (BattleGame: the game's state machine for movement, dashes, jumps and melee)
+/// with 1P on the on-screen controls, a keyboard or a controller and 2P on the computer;
+/// "Pose" shows both playing one animation set with a free camera.
 struct BattleView: View {
     let urls: [URL]
     @State private var stages: [Int] = []
@@ -12,14 +14,20 @@ struct BattleView: View {
     @State private var p1 = 0
     @State private var p2 = 1
     @State private var anim = 2
+    @State private var fight = true
     @State private var scene: StageScene?
     @State private var fighters: [CharacterModel] = []
+    @State private var game: BattleGame?
+    @State private var hud: [DBFighterState] = []
+    @State private var winner: Int?
     @State private var renderer: StageRenderer?
     @State private var orbit: OrbitCamera?
     @State private var base: StageCamera?
+    @State private var follow: StageCamera?
     @State private var started = Date()
     @State private var loading = false
     @State private var errorText: String?
+    @StateObject private var controls = BattleControls()
     private let tick = Timer.publish(every: 1.0 / 60, on: .main, in: .common).autoconnect()
 
     /// Character models only: data/<name>/0N.X outside the item / effect folders.
@@ -34,46 +42,82 @@ struct BattleView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            controls
+            controlsBar
             ZStack {
                 Color.black
-                if let renderer, let orbit, let base {
-                    MetalStageView(renderer: renderer, orbit: Binding(get: { orbit }, set: { self.orbit = $0 }), base: base)
+                if let renderer {
+                    if fight, game != nil {
+                        BattleMetalView(renderer: renderer)
+                    } else if let orbit, let base {
+                        MetalStageView(renderer: renderer, orbit: Binding(get: { orbit }, set: { self.orbit = $0 }), base: base)
+                    }
+                }
+                if fight, game != nil {
+                    BattleHUD(states: hud, names: fighters.map { label(Array($0.name.utf8)) })
+                    TouchControls(controls: controls)
+                    if let winner {
+                        VStack(spacing: 12) {
+                            Text(winner == 0 ? "1P WINS" : "2P WINS").font(.largeTitle.bold()).foregroundStyle(.white)
+                            Button("Rematch") { restart() }.buttonStyle(.borderedProminent)
+                        }
+                        .padding(24).background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityIdentifier("battleResult")
+                    }
                 }
                 if loading { ProgressView().tint(.white) }
                 if let errorText { Text(errorText).foregroundStyle(.red).padding().accessibilityIdentifier("error") }
                 if renderer == nil && scene != nil {
-                    Text("The battle preview needs Metal").foregroundStyle(.white)
+                    Text("The battle needs Metal").foregroundStyle(.white)
                 }
             }
             if let scene {
-                Text("Stage \(String(format: "%02d", scene.stage)) · \(fighters.count) characters · Anim-\(anim + 1)")
+                Text(statusLine(scene))
                     .font(.footnote.monospacedDigit()).padding(6)
                     .accessibilityIdentifier("battleStats")
             }
         }
-        .navigationTitle("Battle preview")
+        .navigationTitle("Battle")
         .navigationBarTitleDisplayMode(.inline)
         .task { await start() }
         .onChange(of: stage) { _ in Task { await load() } }
         .onChange(of: p1) { _ in Task { await load() } }
         .onChange(of: p2) { _ in Task { await load() } }
         .onChange(of: anim) { _ in started = Date() }
-        .onReceive(tick) { _ in pose() }
+        .onChange(of: fight) { on in
+            if on { restart() } else { renderer?.camera = base }
+        }
+        .onReceive(tick) { _ in frame() }
     }
 
-    private var controls: some View {
+    private func statusLine(_ s: StageScene) -> String {
+        let stage = "Stage \(String(format: "%02d", s.stage))"
+        if fight, hud.count == 2 {
+            return "\(stage) · 1P state \(hud[0].state) · 2P state \(hud[1].state)"
+        }
+        return "\(stage) · \(fighters.count) characters · Anim-\(anim + 1)"
+    }
+
+    private var controlsBar: some View {
         VStack(spacing: 4) {
             HStack {
+                Picker("Mode", selection: $fight) {
+                    Text("Fight").tag(true)
+                    Text("Pose").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 180)
+                .accessibilityIdentifier("battleMode")
                 Picker("Stage", selection: $stage) {
                     ForEach(stages, id: \.self) { Text(String(format: "Stage %02d", $0)).tag($0) }
                 }
-                Picker("Animation", selection: $anim) {
-                    ForEach(0..<min(fighters.map { $0.animations.count }.min() ?? 0, 200), id: \.self) {
-                        Text("Anim-\($0 + 1)").tag($0)
+                if !fight {
+                    Picker("Animation", selection: $anim) {
+                        ForEach(0..<min(fighters.map { $0.animations.count }.min() ?? 0, 200), id: \.self) {
+                            Text("Anim-\($0 + 1)").tag($0)
+                        }
                     }
+                    .accessibilityIdentifier("battleAnim")
                 }
-                .accessibilityIdentifier("battleAnim")
             }
             HStack {
                 Picker("1P", selection: $p1) {
@@ -108,6 +152,7 @@ struct BattleView: View {
         }
         loading = true
         errorText = nil
+        game = nil
         let urls = urls, stage = stage
         let picks = [models[min(p1, models.count - 1)], models[min(p2, models.count - 1)]]
         let result = await Task.detached { () -> Result<(StageScene, [CharacterModel]), Error> in
@@ -126,10 +171,23 @@ struct BattleView: View {
             orbit = OrbitCamera(cam)
             renderer?.camera = cam
             started = Date()
-            pose()
+            restart()
         case .failure(let e):
             errorText = e.localizedDescription
         }
+    }
+
+    private func restart() {
+        guard let scene, fighters.count == 2 else { return }
+        winner = nil
+        follow = nil
+        do {
+            game = try BattleGame(fighters[0], fighters[1], spawns: scene.spawns)
+        } catch {
+            game = nil
+            if fight { errorText = error.localizedDescription }
+        }
+        frame()
     }
 
     /// Looks across the line between 1P and 2P from the side, a little above.
@@ -144,8 +202,39 @@ struct BattleView: View {
         return StageCamera(eye: mid + side * sep * 1.2 + SIMD3(0, sep * 0.35, 0), target: mid)
     }
 
-    private func pose() {
+    /// Behind 1P, looking past them at 2P (the game's own camera, 0x5B1890, is not decoded).
+    static func followCamera(_ me: SIMD3<Float>, _ them: SIMD3<Float>) -> StageCamera {
+        var d = SIMD3<Float>(them.x - me.x, 0, them.z - me.z)
+        d = simd_length(d) > 1 ? simd_normalize(d) : SIMD3(0, 0, -1)
+        let eye = me - d * 420 + SIMD3(0, 230, 0)
+        let target = (me + them) / 2 * 0.5 + me * 0.5 + SIMD3(0, 90, 0)
+        return StageCamera(eye: eye, target: target)
+    }
+
+    private func frame() {
         guard let scene, let renderer, fighters.count == 2, scene.spawns.count >= 2 else { return }
+        if fight, let game {
+            if winner == nil { game.step(p1: controls.pad(), p2: nil) }
+            let states = [game.fighter(0), game.fighter(1)]
+            hud = states
+            if winner == nil, let w = game.winner { winner = w }
+            var batches: [StageBatch] = []
+            for (f, s) in zip(fighters, states) {
+                let a = Int(s.anim) < f.animations.count ? Int(s.anim) : -1
+                batches += f.pose(anim: a, seconds: s.anim_seconds, at: s.position, yaw: s.yaw)
+            }
+            renderer.setDynamicBatches(batches)
+            let want = Self.followCamera(states[0].position, states[1].position)
+            if var cam = follow {  // ease toward the wanted view
+                cam.eye += (want.eye - cam.eye) * 0.15
+                cam.target += (want.target - cam.target) * 0.2
+                follow = cam
+            } else {
+                follow = want
+            }
+            renderer.camera = follow
+            return
+        }
         let t = Date().timeIntervalSince(started)
         var batches: [StageBatch] = []
         for (i, f) in fighters.enumerated() {
@@ -154,5 +243,150 @@ struct BattleView: View {
             batches += f.pose(anim: a, seconds: t, at: at, facing: other)
         }
         renderer.setDynamicBatches(batches)
+    }
+}
+
+/// The Metal view without camera gestures (the battle drives the camera).
+struct BattleMetalView: UIViewRepresentable {
+    let renderer: StageRenderer
+
+    func makeUIView(context: Context) -> MTKView {
+        let v = MTKView(frame: .zero, device: renderer.device)
+        v.colorPixelFormat = StageRenderer.colorFormat
+        v.depthStencilPixelFormat = StageRenderer.depthFormat
+        v.delegate = renderer
+        v.preferredFramesPerSecond = 60
+        v.isPaused = false
+        v.enableSetNeedsDisplay = false
+        v.accessibilityIdentifier = "battleMetalView"
+        return v
+    }
+
+    func updateUIView(_ v: MTKView, context: Context) {}
+}
+
+/// HP (with the red drain bar that follows it down) and stamina for both fighters.
+struct BattleHUD: View {
+    let states: [DBFighterState]
+    let names: [String]
+
+    var body: some View {
+        VStack {
+            HStack(alignment: .top, spacing: 24) {
+                ForEach(Array(states.enumerated()), id: \.offset) { i, s in
+                    VStack(alignment: i == 0 ? .leading : .trailing, spacing: 3) {
+                        Text((i == 0 ? "1P " : "2P ") + (i < names.count ? names[i] : ""))
+                            .font(.caption.bold()).foregroundStyle(.white)
+                        bar(Double(s.hp) / 10000, drain: Double(s.hp_bar) / 10000, colour: .green, height: 10,
+                            leading: i == 0)
+                        bar(Double(s.stamina) / 1000, drain: nil, colour: .cyan, height: 5, leading: i == 0)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(i == 0 ? "1P" : "2P") HP \(s.hp)")
+                    .accessibilityIdentifier(i == 0 ? "hud1P" : "hud2P")
+                }
+            }
+            .padding(10)
+            Spacer()
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func bar(_ v: Double, drain: Double?, colour: Color, height: CGFloat, leading: Bool) -> some View {
+        GeometryReader { g in
+            ZStack(alignment: leading ? .leading : .trailing) {
+                Rectangle().fill(.black.opacity(0.55))
+                if let drain { Rectangle().fill(.red).frame(width: g.size.width * max(0, min(1, drain))) }
+                Rectangle().fill(colour).frame(width: g.size.width * max(0, min(1, v)))
+            }
+        }
+        .frame(height: height)
+        .overlay(Rectangle().stroke(.white.opacity(0.7), lineWidth: 1))
+    }
+}
+
+/// On-screen stick (left) and Jump / Melee / Shot buttons (right). Double-tap the stick
+/// for a dash; hold Jump to keep rising.
+struct TouchControls: View {
+    @ObservedObject var controls: BattleControls
+    @State private var knob = CGSize.zero
+
+    var body: some View {
+        VStack {
+            Spacer()
+            HStack(alignment: .bottom) {
+                stick
+                Spacer()
+                VStack(spacing: 14) {
+                    button("Shot", bit: 2)
+                    HStack(spacing: 14) {
+                        button("Melee", bit: 1)
+                        button("Jump", bit: 0)
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private var stick: some View {
+        let radius: CGFloat = 56
+        return ZStack {
+            Circle().fill(.white.opacity(0.12)).frame(width: radius * 2, height: radius * 2)
+            Circle().stroke(.white.opacity(0.4), lineWidth: 2).frame(width: radius * 2, height: radius * 2)
+            Circle().fill(.white.opacity(0.45)).frame(width: 48, height: 48).offset(knob)
+        }
+        .contentShape(Circle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { g in
+                    var d = g.translation
+                    let len = sqrt(d.width * d.width + d.height * d.height)
+                    if len > radius { d = CGSize(width: d.width / len * radius, height: d.height / len * radius) }
+                    knob = d
+                    controls.stick = SIMD2(Float(d.width / radius), Float(d.height / radius))
+                }
+                .onEnded { _ in
+                    knob = .zero
+                    controls.stick = .zero
+                }
+        )
+        .accessibilityIdentifier("stick")
+    }
+
+    private func button(_ title: String, bit: UInt32) -> some View {
+        ButtonPad(title: title) { down in
+            if down { controls.touchButtons |= 1 << bit } else { controls.touchButtons &= ~(1 << bit) }
+        }
+    }
+}
+
+private struct ButtonPad: View {
+    let title: String
+    let changed: (Bool) -> Void
+    @State private var down = false
+
+    var body: some View {
+        Text(title)
+            .font(.caption.bold())
+            .foregroundStyle(.white)
+            .frame(width: 64, height: 64)
+            .background(Circle().fill(.white.opacity(down ? 0.45 : 0.18)))
+            .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 2))
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        if !down {
+                            down = true
+                            changed(true)
+                        }
+                    }
+                    .onEnded { _ in
+                        down = false
+                        changed(false)
+                    }
+            )
+            .accessibilityIdentifier("button" + title)
     }
 }

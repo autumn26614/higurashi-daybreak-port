@@ -91,6 +91,20 @@ final class CharacterModel {
         return StageScene.batches(of: g)
     }
 
+    /// The pose at `position`, turned by `yaw` radians (the battle core's body yaw).
+    func pose(anim: Int, seconds: Double, at position: SIMD3<Float>, yaw: Float) -> [StageBatch] {
+        var p = [position.x, position.y, position.z]
+        guard let g = db_character_pose_at(character, Int32(anim), seconds, &p, yaw) else { return [] }
+        defer { db_geometry_free(g) }
+        return StageScene.batches(of: g)
+    }
+
+    /// A battle between this character (1P) and `other` (2P); see BattleGame.
+    func openBattle(with other: CharacterModel, _ s1: inout [Float], _ s2: inout [Float],
+                    _ err: inout [CChar]) -> OpaquePointer? {
+        db_battle_open(archives, character, other.character, &s1, &s2, &err, Int32(err.count))
+    }
+
     /// CPU reference frame of a pose (for devices without Metal).
     func renderReference(anim: Int, seconds: Double, camera: StageCamera, width: Int, height: Int) -> [UInt8] {
         guard let g = db_character_pose(character, Int32(anim), seconds) else { return [] }

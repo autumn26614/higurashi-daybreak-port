@@ -69,6 +69,16 @@ final class MediaTests: XCTestCase {
         let cam = BattleView.battleCamera(s)
         XCTAssertLessThan(cam.eye.z, cam.target.z, "the camera stands on the -z side")
         XCTAssertGreaterThan(cam.eye.y, cam.target.y)
+        // The fight camera stands behind 1P, above, looking toward 2P.
+        let follow = BattleView.followCamera(SIMD3(0, 0, 0), SIMD3(0, 0, -800))
+        XCTAssertGreaterThan(follow.eye.z, 0)
+        XCTAssertGreaterThan(follow.eye.y, follow.target.y)
+        XCTAssertLessThan(follow.target.z, 0)
+        // No touches, keys or controller: a neutral pad.
+        let pad = BattleControls().pad()
+        XCTAssertEqual(pad.x, 0)
+        XCTAssertEqual(pad.y, 0)
+        XCTAssertEqual(pad.buttons, 0)
     }
 
     func testDecodedSoundLoopsAndPlayerAcceptsIt() {

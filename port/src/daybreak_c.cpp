@@ -14,6 +14,8 @@
 #include "geometry.h"
 #include "camera.h"
 #include "character.h"
+#include "chardef.h"
+#include "fighter.h"
 #include "raster.h"
 #include "recipe.h"
 #include "identify.h"
@@ -53,6 +55,11 @@ struct DBCharacter {
 
 struct DBStageGeometry {
     db::StageGeometry geo;
+};
+
+struct DBBattle {
+    db::CharDef defs[2];
+    db::battle::Battle battle;
 };
 
 struct DBStory {
@@ -134,6 +141,43 @@ bool load_rgba(void* ctx, const std::string& name, std::vector<uint8_t>& rgba, i
     h = int(img.height);
     return true;
 }
+
+// The definition next to a model: data/<name>/00.X -> data/<name>/00.dat. Costume models
+// (data/<name>_B/, the loader's costume flag 2) use the base character's definition.
+bool load_chardef(const db::Source& src, const db::Character& c, db::CharDef& out, std::string* err) {
+    std::string path = c.path;
+    const size_t dot = path.rfind('.');
+    path = (dot == std::string::npos ? path : path.substr(0, dot)) + ".dat";
+    const db::Entry* e = src.find(path);
+    const size_t slash = path.rfind('/');
+    if (!e && slash != std::string::npos && slash >= 2 && (path.compare(slash - 2, 2, "_B") == 0 ||
+                                                          path.compare(slash - 2, 2, "_b") == 0)) {
+        path.erase(slash - 2, 2);
+        e = src.find(path);
+    }
+    std::vector<uint8_t> bytes;
+    if (!e) {
+        if (err) *err = "no character definition " + path;
+        return false;
+    }
+    if (!src.read(*e, bytes, err)) return false;
+    if (!db::parse_chardef(bytes.data(), bytes.size(), out, err)) {
+        if (err) *err = path + ": " + *err;
+        return false;
+    }
+    return true;
+}
+
+// Length of each animation set in game frames (the game advances 0.016 s per frame).
+std::vector<int> anim_frames(const db::Character& c) {
+    std::vector<int> out;
+    for (const auto& a : c.anims) {
+        const double seconds = (a.ticks + 80) / c.ticks_per_second;
+        out.push_back(std::max(1, int(seconds / db::battle::kFrameSeconds + 0.5)));
+    }
+    return out;
+}
+
 }  // namespace
 
 extern "C" {
@@ -529,6 +573,61 @@ DBStageGeometry* db_character_pose_at(const DBCharacter* c, int32_t anim, double
 }
 
 float db_facing_yaw(const float from[3], const float to[3]) { return from && to ? db::facing_yaw(from, to) : 0.f; }
+
+DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter* p2, const float spawn1[3],
+                         const float spawn2[3], char* err, int32_t err_len) {
+    if (!a || !p1 || !p2 || !spawn1 || !spawn2) {
+        set_err(err, err_len, "no archive, character or spawn point");
+        return nullptr;
+    }
+    auto* b = new (std::nothrow) DBBattle;
+    if (!b) {
+        set_err(err, err_len, "out of memory");
+        return nullptr;
+    }
+    const DBCharacter* cs[2] = {p1, p2};
+    for (int i = 0; i < 2; ++i) {
+        std::string msg;
+        if (!load_chardef(a->set, cs[i]->c, b->defs[i], &msg)) {
+            set_err(err, err_len, msg);
+            delete b;
+            return nullptr;
+        }
+    }
+    b->battle.start(&b->defs[0], anim_frames(p1->c), spawn1, &b->defs[1], anim_frames(p2->c), spawn2);
+    set_err(err, err_len, "");
+    return b;
+}
+
+void db_battle_free(DBBattle* b) { delete b; }
+
+void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2) {
+    if (!b) return;
+    db::battle::Pad pads[2];
+    const DBPad* in[2] = {p1, p2};
+    for (int i = 0; i < 2; ++i)
+        if (in[i]) pads[i] = {in[i]->x, in[i]->y, in[i]->buttons};
+    b->battle.step(p1 ? &pads[0] : nullptr, p2 ? &pads[1] : nullptr);
+}
+
+int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out) {
+    if (!b || !out || i < 0 || i > 1) return 0;
+    const db::battle::Fighter& f = b->battle.f[size_t(i)];
+    for (int k = 0; k < 3; ++k) out->pos[k] = f.pos[k];
+    out->yaw = f.body_yaw();
+    out->anim = f.anim();
+    out->anim_seconds = f.frame * db::battle::kFrameSeconds;
+    out->state = f.state;
+    out->step = f.step;
+    out->frame = f.frame;
+    out->hp = f.hp;
+    out->hp_bar = f.hp_bar;
+    out->stamina = f.stamina;
+    out->grounded = f.ground ? 1 : 0;
+    return 1;
+}
+
+int32_t db_battle_winner(const DBBattle* b) { return b ? b->battle.winner : -1; }
 
 int32_t db_geometry_character_camera(const DBStageGeometry* g, DBCamera* out) {
     if (!g || !out) return 0;

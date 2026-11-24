@@ -147,7 +147,7 @@ struct ContentView: View {
             NavigationLink {
                 BattleView(urls: archiveURLs)
             } label: {
-                Label("Battle preview", systemImage: "person.2")
+                Label("Battle", systemImage: "person.2")
             }
             .accessibilityIdentifier("battle")
             NavigationLink {

@@ -154,6 +154,34 @@ DBStageGeometry* db_character_pose_at(const DBCharacter* c, int32_t anim, double
 /* Yaw that turns a model (which faces -z) from `from` towards `to`. */
 float db_facing_yaw(const float from[3], const float to[3]);
 
+/* ---- Battle (src/fighter.h, src/chardef.h) ------------------------------------------
+ * Two fighters on a stage driven by the game's state machine. The character definitions
+ * are read from the .dat next to each model (data/<name>/00.X -> 00.dat). One step is one
+ * game frame (60 per second). Pad: x / y in -1..1 (y < 0 = toward the opponent), buttons
+ * bit 0 jump / boost, 1 melee, 2 shot, 3 special. */
+typedef struct DBBattle DBBattle;
+typedef struct {
+    int32_t x, y;
+    uint32_t buttons;
+} DBPad;
+typedef struct {
+    float pos[3];
+    float yaw;            /* radians, for db_character_pose_at */
+    int32_t anim;         /* animation set to show */
+    double anim_seconds;  /* time into it */
+    int32_t state, step, frame;
+    int32_t hp, hp_bar, stamina; /* hp and its drain bar 0..10000, stamina 0..1000 */
+    int32_t grounded;
+} DBFighterState;
+DBBattle* db_battle_open(DBArchives* a, const DBCharacter* p1, const DBCharacter* p2, const float spawn1[3],
+                         const float spawn2[3], char* err, int32_t err_len);
+void db_battle_free(DBBattle* b);
+/* NULL pad: computer controlled (a placeholder opponent for now). */
+void db_battle_step(DBBattle* b, const DBPad* p1, const DBPad* p2);
+int32_t db_battle_fighter(const DBBattle* b, int32_t i, DBFighterState* out);
+/* -1 while both stand, else the winner's index. */
+int32_t db_battle_winner(const DBBattle* b);
+
 /* Draw passes in game order (src/recipe.h). blend: 0 = alpha (SRCALPHA, INVSRCALPHA),
  * 1 = multiply (DESTCOLOR, ZERO), 2 = additive (SRCALPHA, ONE). A batch whose material
  * power != 0 is drawn additively with no Z-write and no fog, whatever its pass says. */
