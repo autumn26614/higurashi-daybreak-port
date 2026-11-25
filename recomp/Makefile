@@ -3,6 +3,8 @@
 #   make run GAME=...                            run it headless
 GAME ?= ../Higurashi Daybreak (Japan)/data
 GEN ?= gen
+# EXE: daybreak.exe, or DaybreakDX.exe for Kai (no comment on the line: make keeps the spaces)
+EXE ?= daybreak.exe
 BUILD ?= build
 PYTHON ?= python3 -I
 CC ?= gcc
@@ -20,7 +22,7 @@ all: $(GEN)/stamp
 
 # The exe at its own base; d3dx9_25.dll (which prefers the same base) moved to 0x00A00000 (below the heap, and outside the values UTF-16 text takes).
 $(GEN)/stamp: tools/lift.py tools/discover.py tools/pe.py
-	$(PYTHON) tools/lift.py "$(GAME)/daybreak.exe" $(GEN) --prefix F
+	$(PYTHON) tools/lift.py "$(GAME)/$(EXE)" $(GEN) --prefix F
 	$(PYTHON) tools/lift.py "$(GAME)/d3dx9_25.dll" $(GEN) --prefix X --base 0x00A00000
 	touch $@
 

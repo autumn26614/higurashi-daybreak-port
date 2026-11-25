@@ -1275,6 +1275,8 @@ static const Method d3d9_vt[] = {
 
 using namespace rt;
 
+SHIM(d3d9, DebugSetMute, 0) { return 0; }  // d3dx9 looks it up on most calls
+
 SHIM(d3d9, Direct3DCreate9, 4) {
     auto o = std::make_shared<d3d::D3D9>();
     o->iids = {"{81BDCBCA-64D4-426D-AE8D-AD0147F4275C}"};

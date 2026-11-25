@@ -2,6 +2,8 @@
 
 #include <sys/stat.h>
 
+#include <vector>
+
 #include "host.h"
 #include "runtime.h"
 
@@ -12,7 +14,8 @@
     extern const uint32_t P##_import_count;                                                  \
     extern const ExportSlot P##_exports[];                                                   \
     extern const uint32_t P##_export_count;                                                  \
-    extern const uint32_t P##_base;
+    extern const uint32_t P##_base;                                                          \
+    extern const char P##_source[];
 extern "C" {
 MODULE_SYMBOLS(F)
 MODULE_SYMBOLS(X)
@@ -24,7 +27,7 @@ namespace rt {
 
 namespace {
 Module &exe() {
-    static Module m = MODULE(F, "daybreak.exe");
+    static Module m = MODULE(F, F_source);  // daybreak.exe, or DaybreakDX.exe for Kai
     return m;
 }
 Module &d3dx() {
@@ -35,16 +38,21 @@ Module &d3dx() {
 
 bool game_translated() { return F_count > 0 && X_count > 0; }
 
+std::string game_exe() { return F_source[0] ? F_source : "daybreak.exe"; }
+
 bool game_files_present(const std::string &dir) {
     struct stat st;
-    for (const char *f : {"daybreak.exe", "d3dx9_25.dll", "daybreak00.dat", "daybreak01.dat", "daybreak02.dat"})
+    std::vector<std::string> files = {game_exe(), "d3dx9_25.dll", "daybreak00.dat", "daybreak01.dat", "daybreak02.dat"};
+    if (game_exe() != "daybreak.exe")  // Kai: its own archives too
+        for (const char *f : {"daybreak04.dat", "daybreak05.dat", "daybreak06.dat"}) files.push_back(f);
+    for (auto &f : files)
         if (stat((dir + "/" + f).c_str(), &st) != 0) return false;
     return true;
 }
 
 void game_load(const std::string &dir) {
     game_root = dir;
-    load_module(dir + "/daybreak.exe", exe());
+    load_module(dir + "/" + game_exe(), exe());
     load_module(dir + "/d3dx9_25.dll", d3dx());
     bind_imports();
 }

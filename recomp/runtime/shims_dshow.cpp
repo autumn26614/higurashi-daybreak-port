@@ -54,6 +54,17 @@ struct Graph {
     // the picture
     movie::Frame frame;
     uint64_t serial = 0;
+    // Filters the game added (held, as the graph does), and a renderer of the game's own
+    // among them (Kai's, which draws the movie into a texture): the pictures go to its
+    // input pin as RGB24 samples, from our output pin, instead of to rt::movie.
+    std::vector<uint32_t> filters;
+    uint32_t sink_filter = 0, sink_pin = 0, sink_input = 0;  // IBaseFilter, IPin, IMemInputPin
+    uint32_t out_pin = 0, allocator = 0, sample = 0, media_type = 0;
+    uint32_t sample_buf = 0, sample_bytes = 0;
+    int sink_w = 0, sink_h = 0;
+    std::atomic<int> sink_state{0};  // the renderer's: 0 stopped, 1 paused, 2 running
+    std::vector<uint8_t> bgr;
+    std::atomic<bool> player_alive{false}, dead{false}, released{false};
 
     ~Graph() {
         halt();
@@ -80,7 +91,10 @@ std::weak_ptr<Graph> playing;
 
 // The interfaces of a graph are separate guest objects; when the game has released them
 // all, the graph stops (as DirectShow's does when it is destroyed). The player thread is
-// left to finish on its own: it may be inside the game's reader.
+// left to finish on its own: it may be inside the game's reader. The filters are let go
+// of by whichever comes last, this or the player.
+void sink_to(CPU *c, Graph &g, int state);
+void release_all(CPU *c, Graph &g);
 struct Facet : ComObject {
     std::shared_ptr<Graph> g;
     explicit Facet(std::shared_ptr<Graph> graph) : g(std::move(graph)) { g->facets++; }
@@ -88,6 +102,9 @@ struct Facet : ComObject {
         if (--g->facets == 0) {
             g->state = 0;
             g->stop = true;
+            sink_to(current(), *g, 0);  // a Receive waiting in the renderer returns
+            g->dead = true;
+            if (!g->player_alive) release_all(current(), *g);
             if (g->has_player) pthread_detach(g->player);
             g->has_player = false;
         }
@@ -102,18 +119,232 @@ std::shared_ptr<Graph> graph(CPU *c) {
 uint32_t vcall(CPU *c, uint32_t obj, int i, std::initializer_list<uint32_t> args) {
     std::vector<uint32_t> a{obj};
     a.insert(a.end(), args.begin(), args.end());
-    uint32_t fn = ld32(ld32(obj) + 4 * uint32_t(i));
-    switch (a.size()) {
-    case 1: return call_guest(c, fn, {a[0]});
-    case 3: return call_guest(c, fn, {a[0], a[1], a[2]});
-    case 5: return call_guest(c, fn, {a[0], a[1], a[2], a[3], a[4]});
-    default: fatal("vcall arity");
+    return call_guest(c, ld32(ld32(obj) + 4 * uint32_t(i)), a.data(), a.size());
+}
+void release(CPU *c, uint32_t &obj) {
+    if (obj) vcall(c, obj, 2, {});
+    obj = 0;
+}
+
+// ---- the game's renderer ----
+// DirectShow method indices.
+enum {
+    kFilterStop = 4, kFilterPause = 5, kFilterRun = 6, kFilterEnumPins = 10,  // IBaseFilter
+    kEnumNext = 3,                                                           // IEnumPins
+    kPinReceiveConnection = 4, kPinDisconnect = 5, kPinQueryDirection = 9,  // IPin
+    kMemNotifyAllocator = 4, kMemReceive = 6,                                // IMemInputPin
+};
+
+void put_guid(uint32_t at, const char *s) {  // "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    unsigned d1, d2, d3, b[8];
+    sscanf(s, "%8x-%4x-%4x-%2x%2x-%2x%2x%2x%2x%2x%2x", &d1, &d2, &d3, &b[0], &b[1], &b[2], &b[3], &b[4], &b[5],
+           &b[6], &b[7]);
+    st32(at, d1);
+    st16(at + 4, uint16_t(d2));
+    st16(at + 6, uint16_t(d3));
+    for (int i = 0; i < 8; i++) st8(at + 8 + uint32_t(i), uint8_t(b[i]));
+}
+
+// The unconnected input pin of a filter the game added, if any (AddRef'd).
+uint32_t find_input_pin(CPU *c, uint32_t filter) {
+    uint32_t out = galloc(12, true);
+    uint32_t found = 0;
+    if (vcall(c, filter, kFilterEnumPins, {out}) == S_OK && ld32(out)) {
+        uint32_t e = ld32(out);
+        while (!found && vcall(c, e, kEnumNext, {1, out + 4, out + 8}) == S_OK && ld32(out + 4)) {
+            uint32_t pin = ld32(out + 4);
+            if (vcall(c, pin, kPinQueryDirection, {out + 8}) == S_OK && ld32(out + 8) == 0)  // PINDIR_INPUT
+                found = pin;
+            else
+                vcall(c, pin, 2, {});
+        }
+        vcall(c, e, 2, {});
     }
+    gfree(out);
+    return found;
+}
+
+// The media type our output pin offers: bottom-up RGB24 (as a DirectShow decoder gives).
+uint32_t make_media_type(int w, int h, uint32_t bytes) {
+    uint32_t mt = galloc(72 + 88, true);
+    uint32_t vih = mt + 72;
+    put_guid(mt, "73646976-0000-0010-8000-00AA00389B71");       // MEDIATYPE_Video
+    put_guid(mt + 16, "E436EB7D-524F-11CE-9F53-0020AF0BA770");  // MEDIASUBTYPE_RGB24
+    st32(mt + 32, 1);                                           // bFixedSizeSamples
+    st32(mt + 40, bytes);                                       // lSampleSize
+    put_guid(mt + 44, "05589F80-C356-11CE-BF01-00AA0055595A");  // FORMAT_VideoInfo
+    st32(mt + 64, 88);                                          // cbFormat
+    st32(mt + 68, vih);
+    st32(vih + 8, uint32_t(w));  // rcSource, rcTarget
+    st32(vih + 12, uint32_t(h));
+    st32(vih + 24, uint32_t(w));
+    st32(vih + 28, uint32_t(h));
+    uint32_t bmi = vih + 48;  // BITMAPINFOHEADER
+    st32(bmi, 40);
+    st32(bmi + 4, uint32_t(w));
+    st32(bmi + 8, uint32_t(h));
+    st16(bmi + 12, 1);
+    st16(bmi + 14, 24);
+    st32(bmi + 20, bytes);
+    return mt;
+}
+
+struct HostPin : ComObject {};
+struct Allocator : ComObject {};
+struct Sample : ComObject {
+    uint32_t buf = 0, size = 0;
+};
+
+uint32_t e_notimpl(CPU *) { return E_NOTIMPL; }
+uint32_t s_ok(CPU *) { return S_OK; }
+uint32_t s_false(CPU *) { return S_FALSE; }
+
+const Method out_pin_vt[] = {
+    COM_IUNKNOWN,
+    {"Connect", 3, e_notimpl}, {"ReceiveConnection", 3, e_notimpl}, {"Disconnect", 1, s_ok},
+    {"ConnectedTo", 2, e_notimpl}, {"ConnectionMediaType", 2, e_notimpl},
+    {"QueryPinInfo", 2, [](CPU *c) {
+         uint32_t info = arg(c, 1);
+         st32(info, 0);
+         st32(info + 4, 1);  // PINDIR_OUTPUT
+         st16(info + 8, 'O');
+         st16(info + 10, 0);
+         return S_OK;
+     }},
+    {"QueryDirection", 2, [](CPU *c) {
+         st32(arg(c, 1), 1);  // PINDIR_OUTPUT
+         return S_OK;
+     }},
+    {"QueryId", 2, e_notimpl}, {"QueryAccept", 2, s_ok}, {"EnumMediaTypes", 2, e_notimpl},
+    {"QueryInternalConnections", 3, e_notimpl}, {"EndOfStream", 1, s_ok}, {"BeginFlush", 1, s_ok},
+    {"EndFlush", 1, s_ok}, {"NewSegment", 7, s_ok},
+};
+
+// One buffer: the renderer draws each sample before Receive returns (it has no clock).
+const Method allocator_vt[] = {
+    COM_IUNKNOWN,
+    {"SetProperties", 3, [](CPU *c) {
+         for (int i = 0; i < 16; i += 4) st32(arg(c, 2) + uint32_t(i), ld32(arg(c, 1) + uint32_t(i)));
+         return S_OK;
+     }},
+    {"GetProperties", 2, e_notimpl}, {"Commit", 1, s_ok}, {"Decommit", 1, s_ok},
+    {"GetBuffer", 5, e_notimpl}, {"ReleaseBuffer", 2, s_ok},
+};
+
+const Method sample_vt[] = {
+    {"QueryInterface", 3, [](CPU *c) {
+         if (guid_string(arg(c, 1)) == "{36B73884-C2C8-11CF-8B46-00805F6CEF60}") {  // IMediaSample2:
+             st32(arg(c, 2), 0);  // the renderer asks for every sample, and copes without
+             return 0x80004002u;
+         }
+         return com_query_interface(c);
+     }},
+    {"AddRef", 1, com_add_ref}, {"Release", 1, com_release},
+    {"GetPointer", 2, [](CPU *c) {
+         st32(arg(c, 1), com_this<Sample>(c)->buf);
+         return S_OK;
+     }},
+    {"GetSize", 1, [](CPU *c) { return com_this<Sample>(c)->size; }},
+    {"GetTime", 3, [](CPU *) { return 0x80040249u; }},  // VFW_E_SAMPLE_TIME_NOT_SET: draw it now
+    {"SetTime", 3, s_ok}, {"IsSyncPoint", 1, s_ok}, {"SetSyncPoint", 2, s_ok}, {"IsPreroll", 1, s_false},
+    {"SetPreroll", 2, s_ok}, {"GetActualDataLength", 1, [](CPU *c) { return com_this<Sample>(c)->size; }},
+    {"SetActualDataLength", 2, s_ok},
+    {"GetMediaType", 2, [](CPU *c) {
+         st32(arg(c, 1), 0);
+         return S_FALSE;
+     }},
+    {"SetMediaType", 2, s_ok}, {"IsDiscontinuity", 1, s_false}, {"SetDiscontinuity", 2, s_ok},
+    {"GetMediaTime", 3, [](CPU *) { return 0x80040251u; }},  // VFW_E_MEDIA_TIME_NOT_SET
+    {"SetMediaTime", 3, s_ok},
+};
+
+// Connects our output pin to the input pin of a renderer the game added, if there is one.
+void connect_sink(CPU *c, Graph &g, int w, int h) {
+    if (g.sink_pin || w <= 0 || h <= 0) return;
+    for (uint32_t f : g.filters) {
+        uint32_t pin = find_input_pin(c, f);
+        if (!pin) continue;
+        uint32_t pitch = (uint32_t(w) * 3 + 3) & ~3u;
+        uint32_t bytes = pitch * uint32_t(h);
+        auto op = std::make_shared<HostPin>();
+        op->iids = {"{56A86891-0AD4-11CE-B03A-0020AF0BA770}"};  // IPin
+        g.out_pin = com_new(op, com_vtable("IPin(out)", out_pin_vt));
+        g.media_type = make_media_type(w, h, bytes);
+        uint32_t hr = vcall(c, pin, kPinReceiveConnection, {g.out_pin, g.media_type});
+        if (hr != S_OK) {
+            log("recomp: DirectShow: the game's renderer refused %dx%d RGB24 (%08x)", w, h, hr);
+            vcall(c, pin, 2, {});
+            continue;
+        }
+        uint32_t out = galloc(4, true), iid = galloc(16);
+        put_guid(iid, "56A8689D-0AD4-11CE-B03A-0020AF0BA770");  // IID_IMemInputPin
+        vcall(c, pin, 0, {iid, out});
+        g.sink_input = ld32(out);
+        gfree(iid);
+        gfree(out);
+        if (!g.sink_input) {
+            vcall(c, pin, kPinDisconnect, {});
+            vcall(c, pin, 2, {});
+            continue;
+        }
+        auto a = std::make_shared<Allocator>();
+        a->iids = {"{56A8689C-0AD4-11CE-B03A-0020AF0BA770}"};  // IMemAllocator
+        g.allocator = com_new(a, com_vtable("IMemAllocator", allocator_vt));
+        auto s = std::make_shared<Sample>();
+        s->iids = {"{56A8689A-0AD4-11CE-B03A-0020AF0BA770}"};  // IMediaSample
+        s->buf = g.sample_buf = galloc(bytes, true);
+        s->size = g.sample_bytes = bytes;
+        g.sample = com_new(s, com_vtable("IMediaSample", sample_vt));
+        vcall(c, g.sink_input, kMemNotifyAllocator, {g.allocator, 0});
+        g.sink_filter = f;
+        g.sink_pin = pin;
+        g.sink_w = w;
+        g.sink_h = h;
+        log("recomp: DirectShow: movie %dx%d goes to the game's renderer", w, h);
+        return;
+    }
+}
+
+void sink_to(CPU *c, Graph &g, int state) {
+    if (!g.sink_filter || !c || g.sink_state == state) return;
+    if (state == 0) {
+        vcall(c, g.sink_filter, kFilterStop, {});
+    } else {
+        if (g.sink_state == 0 || state == 1) vcall(c, g.sink_filter, kFilterPause, {});
+        if (state == 2) vcall(c, g.sink_filter, kFilterRun, {0, 0});
+    }
+    g.sink_state = state;
+}
+
+// Once the game has released the graph and the player is gone: lets go of the filters.
+void release_all(CPU *c, Graph &g) {
+    if (!c || g.released.exchange(true)) return;
+    sink_to(c, g, 0);
+    if (g.sink_pin) vcall(c, g.sink_pin, kPinDisconnect, {});
+    release(c, g.sink_input);
+    release(c, g.sink_pin);
+    for (uint32_t &f : g.filters) release(c, f);
+    g.filters.clear();
+    g.sink_filter = 0;
+}
+
+// A decoded picture to the game's renderer: bottom-up BGR rows, as a DIB.
+void deliver(Graph &g, plm_frame_t *f) {
+    if (!g.cpu || g.sink_state != 2) return;
+    int w = std::min(int(f->width), g.sink_w), h = std::min(int(f->height), g.sink_h);
+    g.bgr.resize(size_t(f->width) * f->height * 3);
+    plm_frame_to_bgr(f, g.bgr.data(), int(f->width) * 3);
+    uint32_t pitch = (uint32_t(g.sink_w) * 3 + 3) & ~3u;
+    for (int y = 0; y < h; y++)
+        memcpy(GM + g.sample_buf + uint32_t(g.sink_h - 1 - y) * pitch, g.bgr.data() + size_t(y) * f->width * 3,
+               size_t(w) * 3);
+    vcall(g.cpu, g.sink_input, kMemReceive, {g.sample});
 }
 
 // ---- playback ----
 void on_video(plm_t *, plm_frame_t *f, void *user) {
     Graph *g = static_cast<Graph *>(user);
+    if (g->sink_input) return deliver(*g, f);
     std::vector<uint8_t> rgba(size_t(f->width) * f->height * 4);
     plm_frame_to_rgba(f, rgba.data(), int(f->width) * 4);
     std::lock_guard<std::mutex> lock(g->m);
@@ -201,19 +432,27 @@ void run_player(std::shared_ptr<Graph> g) {
         }
     }
     CPU *c = g->cpu;
+    g->player_alive = false;
+    if (g->dead) release_all(c, *g);
     g->cpu = nullptr;
     free_cpu(c);
 }
 
-uint32_t start(CPU *, std::shared_ptr<Graph> g) {
+// Starts the player thread (paused or running), or carries on with the one there is.
+uint32_t start(CPU *c, std::shared_ptr<Graph> g, int state) {
     if (!g->reader && g->stream.empty()) return S_FALSE;
-    if (g->state == 2 && g->has_player) return S_OK;
-    g->halt();
-    g->state = 2;
+    sink_to(c, *g, state);
+    if (g->has_player && g->player_alive) {
+        g->state = state;
+        return S_OK;
+    }
+    g->halt();  // one that has reached the end
+    g->state = state;
     {
         std::lock_guard<std::mutex> lock(current_mutex);
         playing = g;
     }
+    g->player_alive = true;
     g->player = spawn_thread([g] { run_player(g); }, false);
     g->has_player = true;
     return S_OK;
@@ -255,7 +494,9 @@ const Method builder_vt[] = {
     UNKNOWN,
     {"AddFilter", 3, [](CPU *c) {
          uint32_t f = arg(c, 1);
-         if (f) call_guest(c, ld32(ld32(f) + 4), {f});  // the graph holds a reference
+         if (!f) return 0x80004003u;  // E_POINTER
+         vcall(c, f, 1, {});  // the graph holds a reference
+         graph(c)->filters.push_back(f);
          return S_OK;
      }},
     {"RemoveFilter", 2, ok}, {"EnumFilters", 2, not_impl},
@@ -265,6 +506,15 @@ const Method builder_vt[] = {
     {"Render", 2, [](CPU *c) {
          auto g = graph(c);
          if (!open_reader(c, *g, arg(c, 1))) return VFW_E_CANNOT_RENDER;
+         if (g->filters.size() > 1) {
+             // A renderer of the game's own may be among them: it needs the picture size
+             // now, to make its texture, so the stream headers are read here.
+             g->cpu = c;
+             int w = open_decoder(*g) ? plm_get_width(g->plm) : 0;
+             int h = g->plm ? plm_get_height(g->plm) : 0;
+             g->cpu = nullptr;
+             connect_sink(c, *g, w, h);
+         }
          return S_OK;
      }},
     {"RenderFile", 3, [](CPU *c) {
@@ -286,17 +536,16 @@ const Method builder_vt[] = {
 
 const Method control_vt[] = {
     UNKNOWN, DISPATCH,
-    {"Run", 1, [](CPU *c) { return start(c, graph(c)); }},
+    {"Run", 1, [](CPU *c) { return start(c, graph(c), 2); }},
     {"Pause", 1, [](CPU *c) {
-         auto g = graph(c);
-         if (!g->has_player) start(c, g);
-         g->state = 1;
+         start(c, graph(c), 1);
          return S_OK;
      }},
     {"Stop", 1, [](CPU *c) {
          auto g = graph(c);
-         g->halt();
          g->state = 0;
+         sink_to(c, *g, 0);  // first: the player may be waiting in the renderer
+         g->halt();
          return S_OK;
      }},
     {"GetState", 3, [](CPU *c) {
@@ -492,7 +741,7 @@ bool current(Frame &out) {
         std::lock_guard<std::mutex> lock(current_mutex);
         g = playing.lock();
     }
-    if (!g || g->state == 0 || !g->visible) return false;
+    if (!g || g->state == 0 || !g->visible || g->sink_input) return false;
     std::lock_guard<std::mutex> lock(g->m);
     if (g->frame.rgba.empty()) return false;
     if (out.serial != g->frame.serial) {

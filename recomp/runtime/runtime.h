@@ -68,6 +68,7 @@ uint32_t make_thunk(const std::string &name, int stack_bytes, ShimFn fn);
 // Calls guest function `fn` with 32-bit stack arguments; returns eax. Works for cdecl and
 // stdcall (the stack pointer is restored either way); `ecx` is set for thiscall.
 uint32_t call_guest(CPU *c, uint32_t fn, std::initializer_list<uint32_t> args, uint32_t ecx = 0);
+uint32_t call_guest(CPU *c, uint32_t fn, const uint32_t *args, size_t n, uint32_t ecx = 0);
 
 // ---- threads ----
 // A host thread for guest code, with a big stack (translated code recurses on the host

@@ -51,8 +51,13 @@ make GEN=/tmp/rgen BUILD=/tmp/rbuild -j8     # translate both modules, then comp
 tools/run_shots.sh <seconds> <every> <first> [keys]   # PNG frames into /tmp/shots
 ```
 
-Keep the game folder on a Linux file system (WSL's `/mnt/c` is slow). Needs Python 3 with
+Keep the game folder on a Linux file system: not WSL's `/mnt/c` (slow), and not `/tmp` (a RAM disk there). Needs Python 3 with
 Capstone 5 (`~/.local/daybreak-py` is searched).
+
+Kai (the expansion) is a separate executable: translate it with
+`make EXE=DaybreakDX.exe GAME=<Kai folder> GEN=... BUILD=...`. It needs `daybreak04.dat`
+to `daybreak06.dat` besides the base archives. Its movies go through a DirectShow renderer
+of its own that draws into a texture; the graph connects to it and hands it RGB24 samples.
 
 Environment switches:
 
@@ -90,7 +95,8 @@ Environment switches:
   interface), DirectInput 8 (keyboard), DirectSound 8 (software mixer, 3D, notifications),
   DirectShow (the game's movies: its own source filter, pl_mpeg decoding, IVideoWindow).
 - Running headless with the software renderer: opening movie → title → story intro movie
-  → team select → weapon select, all drawn by the game's own code.
+  → team select → weapon select, all drawn by the game's own code. Kai boots through
+  its opening movie to its title menu.
 
 ## iOS
 

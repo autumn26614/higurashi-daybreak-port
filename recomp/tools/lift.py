@@ -656,6 +656,8 @@ def main():
         fo.write('const uint32_t %s_export_count = %d;\n' % (prefix, len(rows)))
         fo.write('const ExportSlot %s_exports[] = {\n%s\n    {NULL, 0, 0}\n};\n' % (prefix, '\n'.join(rows)))
         fo.write('const uint32_t %s_base = %s;\n' % (prefix, hx(img.base)))
+        fo.write('const char %s_source[] = "%s";  /* the file this was translated from */\n' %
+                 (prefix, os.path.basename(pe_path)))
     with open(os.path.join(out_dir, prefix + '_imports.c'), 'w') as fo:
         fo.write('/* Generated. Import address table slots: (IAT address, DLL, name or #ordinal). */\n')
         fo.write('#include "x86.h"\n')

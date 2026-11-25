@@ -195,22 +195,42 @@ SHIM(winmm, waveOutGetVolume, 8) {
     return 0;
 }
 SHIM(winmm, waveOutSetVolume, 8) { return 0; }
+namespace {
+std::mutex timer_mutex;
+std::map<uint32_t, std::shared_ptr<std::atomic<bool>>> timers;  // id -> still wanted
+}  // namespace
 SHIM(winmm, timeSetEvent, 20) {
     uint32_t delay = arg(c, 0), cb = arg(c, 2), user = arg(c, 3), flags = arg(c, 4);
     static std::atomic<uint32_t> next_id{1};
     uint32_t id = next_id++;
+    auto alive = std::make_shared<std::atomic<bool>>(true);
+    {
+        std::lock_guard<std::mutex> lock(timer_mutex);
+        timers[id] = alive;
+    }
     spawn_thread([=] {
         CPU *tc = new_cpu(kThreadStack);
         auto next = std::chrono::steady_clock::now();
         do {
             next += std::chrono::milliseconds(delay ? delay : 1);
             std::this_thread::sleep_until(next);
+            if (!*alive) break;
             call_guest(tc, cb, {id, 0, user, 0, 0});
-        } while (flags & 1);  // TIME_PERIODIC
+        } while ((flags & 1) && *alive);  // TIME_PERIODIC
         free_cpu(tc);
+        std::lock_guard<std::mutex> lock(timer_mutex);
+        timers.erase(id);
     }, true);
     return id;
 }
+SHIM(winmm, timeKillEvent, 4) {
+    std::lock_guard<std::mutex> lock(timer_mutex);
+    auto it = timers.find(arg(c, 0));
+    if (it == timers.end()) return 97;  // TIMERR_NOCANDO
+    *it->second = false;
+    return 0;
+}
+SHIM(winmm, timeEndPeriod, 4) { return 0; }
 
 // mmio: RIFF files, on disk or in a memory buffer (FOURCC_MEM).
 namespace {

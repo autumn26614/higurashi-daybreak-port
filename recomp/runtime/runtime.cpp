@@ -50,7 +50,11 @@ void fatal(const char *fmt, ...) {
         for (int i = 0; i < 12; i++) fprintf(stderr, " %08x", ld32(c->r[4] + 4 * i));
         fputc('\n', stderr);
     }
+    // The host call chain: the translated functions appear by name (F_xxxxxxxx).
+    void *frames[48];
+    int n = backtrace(frames, 48);
     fflush(stderr);
+    backtrace_symbols_fd(frames, n, 2);
     abort();
 }
 
@@ -285,12 +289,15 @@ namespace rt {
 
 // ---- calling guest code ----
 uint32_t call_guest(CPU *c, uint32_t fn, std::initializer_list<uint32_t> args, uint32_t ecx) {
+    return call_guest(c, fn, args.begin(), args.size(), ecx);
+}
+
+uint32_t call_guest(CPU *c, uint32_t fn, const uint32_t *args, size_t n, uint32_t ecx) {
     uint32_t saved = c->r[4];
     uint32_t sp = saved;
-    for (auto it = args.end(); it != args.begin();) {
-        --it;
+    for (size_t i = n; i-- > 0;) {
         sp -= 4;
-        st32(sp, *it);
+        st32(sp, args[i]);
     }
     sp -= 4;
     st32(sp, 0);  // return address: never used (translated code returns to the host)

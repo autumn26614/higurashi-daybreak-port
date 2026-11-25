@@ -9,7 +9,8 @@
     __attribute__((weak)) const ImportSlot P##_imports[1] = {{0, 0, 0}};                      \
     __attribute__((weak)) const uint32_t P##_export_count = 0;                                \
     __attribute__((weak)) const ExportSlot P##_exports[1] = {{0, 0, 0}};                      \
-    __attribute__((weak)) const uint32_t P##_base = 0;
+    __attribute__((weak)) const uint32_t P##_base = 0;                                        \
+    __attribute__((weak)) const char P##_source[] = "";
 
 STUB(F)
 STUB(X)

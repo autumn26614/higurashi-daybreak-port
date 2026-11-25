@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 
+#include "game.h"
 #include "host.h"
 #include "runtime.h"
 
@@ -328,19 +329,45 @@ SHIM(kernel32, SetFilePointer, 16) {
     return uint32_t(pos);
 }
 SHIM(kernel32, CloseHandle, 4) { return handle_close(arg(c, 0)) ? 1 : 0; }
+SHIM(kernel32, SetEndOfFile, 4) {
+    auto f = handle_as<File>(arg(c, 0));
+    if (!f) return 0;
+    fflush(f->f);
+    return ftruncate(fileno(f->f), ftell(f->f)) == 0 ? 1 : 0;
+}
 
 // ---- process and modules ----
+// A handle for a system DLL the shims stand for: the guest copy of its name (GetProcAddress
+// reads it back). The same name always gives the same handle.
+static uint32_t pseudo_module(const std::string &name) {
+    static std::map<std::string, uint32_t> modules;
+    static std::mutex m;
+    std::string key = name;
+    for (auto &ch : key) ch = char(tolower(static_cast<unsigned char>(ch)));
+    std::lock_guard<std::mutex> lock(m);
+    uint32_t &h = modules[key];
+    if (!h) h = gstrdup(name);
+    return h;
+}
+
 SHIM(kernel32, GetModuleHandleA, 4) {
-    // The modules that exist: the exe and d3dx9 (at their bases); others are not loaded.
+    // The exe and d3dx9 at their bases; the system DLLs the shims provide (Windows always has
+    // kernel32 and friends loaded, and C runtimes rely on it); others are not loaded.
     if (!arg(c, 0)) return 0x400000;
     std::string n = gstr(arg(c, 0));
     for (auto &ch : n) ch = char(tolower(static_cast<unsigned char>(ch)));
-    if (n == "daybreak.exe" || n == "daybreak") return 0x400000;
+    std::string exe = game_exe();
+    for (auto &ch : exe) ch = char(tolower(static_cast<unsigned char>(ch)));
+    if (n == exe || n + ".exe" == exe) return 0x400000;
     if (n == "d3dx9_25.dll" || n == "d3dx9_25") return 0x00A00000;
+    if (n.size() > 4 && n.compare(n.size() - 4, 4, ".dll") == 0) n.resize(n.size() - 4);
+    for (const char *sys : {"kernel32", "user32", "gdi32", "advapi32", "ntdll", "winmm", "ole32", "oleaut32",
+                            "imm32", "dinput8", "d3d9", "msvcrt", "msvcr71", "msvcp71"})
+        if (n == sys) return pseudo_module(gstr(arg(c, 0)));
     return 0;
 }
 SHIM(kernel32, GetModuleFileNameA, 12) {
-    std::string s = std::string(kGuestDir) + "\\daybreak.exe";
+    std::string s = std::string(kGuestDir) + "\\" + game_exe();
     uint32_t n = arg(c, 2);
     if (!n) return 0;
     uint32_t len = std::min<uint32_t>(uint32_t(s.size()), n - 1);
@@ -391,12 +418,7 @@ SHIM(kernel32, VirtualFree, 12) {
 SHIM(kernel32, LoadLibraryA, 4) {
     std::string n = gstr(arg(c, 0));
     if (trace_imports) log("  LoadLibraryA %s", n.c_str());
-    static std::map<std::string, uint32_t> modules;
-    static std::mutex m;
-    std::lock_guard<std::mutex> lock(m);
-    uint32_t &h = modules[n];
-    if (!h) h = gstrdup(n);  // the handle is the guest copy of its name
-    return h;
+    return pseudo_module(n);
 }
 SHIM(kernel32, FreeLibrary, 4) { return 1; }
 SHIM(kernel32, GetProcAddress, 8) {

@@ -118,7 +118,6 @@ SHIM(kernel32, DeleteFileA, 4) { return 0; }
 SHIM(kernel32, DeleteFileW, 4) { return 0; }
 SHIM(kernel32, MoveFileA, 8) { return 0; }
 SHIM(kernel32, MoveFileW, 8) { return 0; }
-SHIM(kernel32, SetEndOfFile, 4) { return 0; }
 SHIM(kernel32, GetTempPathA, 8) { return 0; }
 SHIM(kernel32, GetTempFileNameA, 16) { return 0; }
 SHIM(kernel32, GetTempFileNameW, 16) { return 0; }
