@@ -16,6 +16,8 @@ struct SoftOptions {
     std::vector<uint64_t> frames;     // and these frames
 };
 std::unique_ptr<Renderer> make_soft_renderer(SoftOptions o);
+// Writes 0xAARRGGBB pixels as a PNG file (alpha ignored).
+bool save_png(const std::string &path, uint32_t w, uint32_t h, const std::vector<uint32_t> &argb);
 
 }  // namespace d3d
 }  // namespace rt

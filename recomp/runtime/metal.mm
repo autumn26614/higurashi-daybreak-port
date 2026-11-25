@@ -508,6 +508,26 @@ public:
         frame_++;
     }
 
+    bool read_frame(Device &d, std::vector<uint32_t> &argb, uint32_t &w, uint32_t &h) override {
+        auto bb = com_as<Surface>(d.backbuffer);
+        if (!bb) return false;
+        id<MTLTexture> frame = color_target(bb->image());
+        w = uint32_t(frame.width);
+        h = uint32_t(frame.height);
+        id<MTLBuffer> buf = [dev_ newBufferWithLength:size_t(w) * h * 4 options:MTLResourceStorageModeShared];
+        id<MTLCommandBuffer> cb = [queue_ commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        [blit copyFromTexture:frame sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+                   sourceSize:MTLSizeMake(w, h, 1) toBuffer:buf destinationOffset:0
+          destinationBytesPerRow:w * 4 destinationBytesPerImage:size_t(w) * h * 4];
+        [blit endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+        argb.resize(size_t(w) * h);
+        memcpy(argb.data(), buf.contents, argb.size() * 4);  // BGRA8 in memory = 0xAARRGGBB words
+        return true;
+    }
+
 private:
     struct Target {
         id<MTLTexture> color = nil, depth = nil;

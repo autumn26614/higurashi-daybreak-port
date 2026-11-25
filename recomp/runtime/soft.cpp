@@ -268,6 +268,17 @@ public:
         }
     }
 
+    bool read_frame(Device &d, std::vector<uint32_t> &argb, uint32_t &w, uint32_t &h) override {
+        Target t = target_of(d, d.backbuffer);
+        if (!t.im) return false;
+        w = t.im->width;
+        h = t.im->height;
+        argb.resize(size_t(w) * h);
+        for (uint32_t y = 0; y < h; y++)
+            for (uint32_t x = 0; x < w; x++) argb[size_t(y) * w + x] = ld32(t.im->mem + y * t.im->pitch + 4 * x);
+        return true;
+    }
+
 private:
     struct Target {
         Image *im = nullptr;
@@ -852,6 +863,17 @@ private:
 }  // namespace
 
 std::unique_ptr<Renderer> make_soft_renderer(SoftOptions o) { return std::make_unique<SoftRenderer>(std::move(o)); }
+
+bool save_png(const std::string &path, uint32_t w, uint32_t h, const std::vector<uint32_t> &argb) {
+    std::vector<uint8_t> rgba(argb.size() * 4);
+    for (size_t i = 0; i < argb.size(); i++) {
+        rgba[i * 4] = uint8_t(argb[i] >> 16);
+        rgba[i * 4 + 1] = uint8_t(argb[i] >> 8);
+        rgba[i * 4 + 2] = uint8_t(argb[i]);
+        rgba[i * 4 + 3] = 255;
+    }
+    return write_png(path, w, h, rgba.data());
+}
 
 }  // namespace d3d
 }  // namespace rt

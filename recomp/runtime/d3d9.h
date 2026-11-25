@@ -129,6 +129,8 @@ public:
                        uint32_t stencil) = 0;
     virtual void draw(Device &, const Draw &) = 0;
     virtual void present(Device &) = 0;
+    // The last presented frame as 0xAARRGGBB pixels (tests); false if not available.
+    virtual bool read_frame(Device &, std::vector<uint32_t> &argb, uint32_t &w, uint32_t &h) { return false; }
 };
 void set_renderer(std::unique_ptr<Renderer> r);  // before the game creates its device
 
