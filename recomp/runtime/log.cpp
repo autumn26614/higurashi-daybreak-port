@@ -6,9 +6,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <time.h>
-#if defined(__APPLE__)
-#include <sys/ucontext.h>  // (<ucontext.h> needs _XOPEN_SOURCE on Apple)
-#else
+#if defined(__linux__)
 #include <ucontext.h>
 #endif
 #include <unistd.h>
@@ -51,16 +49,7 @@ void write_str(int fd, const char *s) { write_all(fd, s, strlen(s)); }
 void crash_handler(int sig, siginfo_t *si, void *uc_) {
     char why[160];
     snprintf(why, sizeof why, "signal %d, fault address %p", sig, si ? si->si_addr : nullptr);
-#if defined(__APPLE__)
-    if (uc_) {
-        ucontext_t *uc = static_cast<ucontext_t *>(uc_);
-#if defined(__aarch64__)
-        snprintf(why + strlen(why), sizeof why - strlen(why), ", pc %p", (void *)uc->uc_mcontext->__ss.__pc);
-#else
-        snprintf(why + strlen(why), sizeof why - strlen(why), ", pc %p", (void *)uc->uc_mcontext->__ss.__rip);
-#endif
-    }
-#elif defined(__linux__) && defined(REG_RIP)
+#if defined(__linux__) && defined(REG_RIP)
     if (uc_) {
         ucontext_t *uc = static_cast<ucontext_t *>(uc_);
         snprintf(why + strlen(why), sizeof why - strlen(why), ", pc %p", (void *)uc->uc_mcontext.gregs[REG_RIP]);
