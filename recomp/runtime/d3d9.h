@@ -134,8 +134,8 @@ struct Device : ComObject {
     uint32_t backbuffer = 0, depthbuffer = 0;  // guest surfaces
     State st;
     uint64_t frames = 0, draws = 0;
-    // State block recording (BeginStateBlock .. EndStateBlock) is done by capturing all.
-    bool recording = false;
+    // While a state block is being recorded: the state to return to.
+    std::unique_ptr<State> recording;
     template <class T> std::shared_ptr<T> get(uint32_t obj) const { return com_as<T>(obj); }
 };
 

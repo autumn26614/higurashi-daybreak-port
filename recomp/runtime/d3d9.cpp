@@ -332,46 +332,104 @@ static uint32_t shader_length(uint32_t a) {  // tokens up to and including the e
 }
 
 // ---- state blocks ----
+// A block is a State in which the fields that are not part of it hold kUnset. Recording
+// (BeginStateBlock .. EndStateBlock) fills the device state with kUnset, lets the setters
+// write as usual, keeps what they wrote as the block and puts the device state back:
+// recorded calls do not take effect, and a state set to its current value still counts
+// (D3DX effects record their states that way).
+constexpr uint32_t kUnset = 0x7FBADBADu;
+
+static void fill_unset(State &s) {
+    s.rs.fill(kUnset);
+    for (auto &t : s.tss) t.fill(kUnset);
+    for (auto &t : s.samp) t.fill(kUnset);
+    s.textures.fill(kUnset);
+    for (auto &m : s.transforms) memcpy(m.m, &kUnset, 4);
+    s.viewport[0] = kUnset;
+    s.material[0] = kUnset;
+    s.lights.clear();
+    for (auto &st : s.streams) st.vb = kUnset;
+    s.indices = s.fvf = s.decl = s.vs = s.ps = kUnset;
+    for (size_t i = 0; i < s.vs_const.size(); i += 4) memcpy(&s.vs_const[i], &kUnset, 4);
+    for (size_t i = 0; i < s.ps_const.size(); i += 4) memcpy(&s.ps_const[i], &kUnset, 4);
+    for (size_t i = 0; i < s.vs_const_i.size(); i += 4) s.vs_const_i[i] = int32_t(kUnset);
+    s.vs_const_b.fill(kUnset);
+    s.scissor[0] = kUnset;
+}
+
+static bool set_bits(const void *p) {
+    uint32_t v;
+    memcpy(&v, p, 4);
+    return v != kUnset;
+}
+
+// Copies the fields of `block` that are part of it, from `from` into `to`. Object slots on
+// the device go through bind() (references).
+static void copy_marked(const State &block, const State &from, State &to, bool to_device) {
+    auto obj = [&](uint32_t &slot, uint32_t v) {
+        if (to_device) bind(slot, v);
+        else slot = v;
+    };
+    for (int i = 0; i < 256; i++)
+        if (block.rs[i] != kUnset) to.rs[i] = from.rs[i];
+    for (int s = 0; s < 8; s++)
+        for (int i = 0; i < 33; i++)
+            if (block.tss[s][i] != kUnset) to.tss[s][i] = from.tss[s][i];
+    for (int s = 0; s < 16; s++)
+        for (int i = 0; i < 14; i++)
+            if (block.samp[s][i] != kUnset) to.samp[s][i] = from.samp[s][i];
+    for (int i = 0; i < 16; i++) {
+        if (block.textures[i] != kUnset) obj(to.textures[i], from.textures[i]);
+        if (block.streams[i].vb != kUnset) {
+            obj(to.streams[i].vb, from.streams[i].vb);
+            to.streams[i].offset = from.streams[i].offset;
+            to.streams[i].stride = from.streams[i].stride;
+        }
+    }
+    for (size_t i = 0; i < block.transforms.size(); i++)
+        if (set_bits(block.transforms[i].m)) to.transforms[i] = from.transforms[i];
+    if (block.viewport[0] != kUnset) memcpy(to.viewport, from.viewport, sizeof to.viewport);
+    if (block.material[0] != kUnset) memcpy(to.material, from.material, sizeof to.material);
+    if (block.scissor[0] != kUnset) memcpy(to.scissor, from.scissor, sizeof to.scissor);
+    if (!block.lights.empty()) to.lights = from.lights;
+    if (block.indices != kUnset) obj(to.indices, from.indices);
+    if (block.decl != kUnset) obj(to.decl, from.decl);
+    if (block.vs != kUnset) obj(to.vs, from.vs);
+    if (block.ps != kUnset) obj(to.ps, from.ps);
+    if (block.fvf != kUnset) to.fvf = from.fvf;
+    for (size_t i = 0; i < block.vs_const.size(); i += 4)
+        if (set_bits(&block.vs_const[i])) memcpy(&to.vs_const[i], &from.vs_const[i], 16);
+    for (size_t i = 0; i < block.ps_const.size(); i += 4)
+        if (set_bits(&block.ps_const[i])) memcpy(&to.ps_const[i], &from.ps_const[i], 16);
+    for (size_t i = 0; i < block.vs_const_i.size(); i += 4)
+        if (uint32_t(block.vs_const_i[i]) != kUnset) memcpy(&to.vs_const_i[i], &from.vs_const_i[i], 16);
+    for (size_t i = 0; i < block.vs_const_b.size(); i++)
+        if (block.vs_const_b[i] != kUnset) to.vs_const_b[i] = from.vs_const_b[i];
+}
+
 struct StateBlock : DeviceChild {
-    State st;
+    State st;  // the values, with kUnset where the block does not cover a field
 };
 static std::shared_ptr<Device> device_of(uint32_t self) { return com_as<Device>(self); }
-static void apply_state(Device &d, const State &s);
 static const Method stateblock_vt[] = {
     COM_IUNKNOWN, I(GetDevice, 2, resource_get_device),
     I(Capture, 1, [](CPU *c) {
         auto b = com_this<StateBlock>(c);
-        if (auto d = device_of(b->device)) b->st = d->st;
+        if (auto d = device_of(b->device)) copy_marked(b->st, d->st, b->st, false);
         return D3D_OK;
     }),
     I(Apply, 1, [](CPU *c) {
         auto b = com_this<StateBlock>(c);
-        if (auto d = device_of(b->device)) apply_state(*d, b->st);
+        if (auto d = device_of(b->device)) copy_marked(b->st, b->st, d->st, true);
         return D3D_OK;
     }),
 };
 
-static void apply_state(Device &d, const State &s) {
-    // Bound objects keep their references right: rebind each slot through bind().
-    State n = s;
-    for (int i = 0; i < 16; i++) {
-        uint32_t t = d.st.textures[i];
-        bind(t, n.textures[i]);
-        n.textures[i] = t;
-        uint32_t v = d.st.streams[i].vb;
-        bind(v, n.streams[i].vb);
-        n.streams[i].vb = v;
-    }
-    uint32_t *slots[] = {&d.st.indices, &d.st.decl, &d.st.vs, &d.st.ps};
-    uint32_t want[] = {n.indices, n.decl, n.vs, n.ps};
-    for (int i = 0; i < 4; i++) bind(*slots[i], want[i]);
-    n.indices = d.st.indices;
-    n.decl = d.st.decl;
-    n.vs = d.st.vs;
-    n.ps = d.st.ps;
-    n.render_target = d.st.render_target;
-    n.depth = d.st.depth;
-    d.st = n;
+static uint32_t new_state_block(uint32_t device, const State &st) {
+    auto b = std::make_shared<StateBlock>();
+    b->device = device;
+    b->st = st;
+    return com_new(b, com_vtable("IDirect3DStateBlock9", stateblock_vt));
 }
 
 // ---- device ----
@@ -729,13 +787,27 @@ static const Method device_vt[] = {
     }),
     I(CreateStateBlock, 3, [](CPU *c) {
         auto d = dev(c);
-        auto b = std::make_shared<StateBlock>();
-        b->device = d->self;
-        b->st = d->st;
-        st32(arg(c, 2), com_new(b, com_vtable("IDirect3DStateBlock9", stateblock_vt)));
+        st32(arg(c, 2), new_state_block(d->self, d->st));  // every field (all types alike)
         return D3D_OK;
     }),
-    M(BeginStateBlock, 1), M(EndStateBlock, 2), M(SetClipStatus, 2), M(GetClipStatus, 2),
+    I(BeginStateBlock, 1, [](CPU *c) {
+        auto d = dev(c);
+        if (d->recording) return D3DERR_INVALIDCALL;
+        d->recording = std::make_unique<State>(d->st);
+        fill_unset(d->st);
+        d->st.render_target = d->recording->render_target;
+        d->st.depth = d->recording->depth;
+        return D3D_OK;
+    }),
+    I(EndStateBlock, 2, [](CPU *c) {
+        auto d = dev(c);
+        if (!d->recording) return D3DERR_INVALIDCALL;
+        State rec = d->st;
+        d->st = *d->recording;
+        d->recording.reset();
+        st32(arg(c, 1), new_state_block(d->self, rec));
+        return D3D_OK;
+    }), M(SetClipStatus, 2), M(GetClipStatus, 2),
     I(GetTexture, 3, [](CPU *c) {
         uint32_t s = arg(c, 1);
         uint32_t t = s < 16 ? dev(c)->st.textures[s] : 0;
