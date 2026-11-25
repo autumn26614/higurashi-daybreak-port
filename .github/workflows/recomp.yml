@@ -61,8 +61,11 @@ jobs:
           set -e
           mkdir -p /tmp/rt /tmp/render
           for f in runtime/*.cpp runtime/*.mm runtime/gen_stub.c tests/render_test.mm; do
-            case "$f" in runtime/main.cpp) continue;; esac
-            clang++ -x $(case "$f" in *.mm) echo objective-c++;; *.c) echo c;; *) echo c++;; esac)               $(case "$f" in *.c) echo -std=c11;; *) echo -std=c++17 -fobjc-arc;; esac) -O1 -w -Iruntime               -c "$f" -o "/tmp/rt/$(basename "$f").o"
+            if [ "$f" = runtime/main.cpp ]; then continue; fi
+            lang="c++ -std=c++17"
+            if [ "${f%.mm}" != "$f" ]; then lang="objective-c++ -std=c++17 -fobjc-arc"; fi
+            if [ "${f%.c}" != "$f" ]; then lang="c -std=c11"; fi
+            clang++ -x $lang -O1 -w -Iruntime -c "$f" -o "/tmp/rt/$(basename "$f").o"
           done
           clang++ /tmp/rt/*.o -o /tmp/render_test -framework Metal -framework QuartzCore -framework CoreText             -framework CoreGraphics -framework Foundation -liconv
           /tmp/render_test /tmp/render
