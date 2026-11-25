@@ -211,6 +211,122 @@ void draw_scene(uint32_t dev) {
     vcall(dev, PRESENT, {0, 0, 0, 0});
 }
 
+// Scene 2: what meshes and effects use. A grid mesh from vertex and index buffers with
+// vertex colours and table fog, drawn into a texture that is then shown on two quads (one
+// through a second stage: MODULATE2X with the texture factor).
+enum { SETRT = 37, GETRT = 38, CREATEVB = 26, CREATEIB = 27, DRAWINDEXED = 82, SETSTREAM = 100, SETINDICES = 104 };
+
+void draw_scene2(uint32_t dev) {
+    uint32_t out = galloc(4, true);
+    // Render target texture 256x256.
+    vcall(dev, CREATETEXTURE, {256, 256, 1, 1, 21, 0, out, 0});
+    uint32_t rt_tex = ld32(out);
+    vcall(rt_tex, 18, {0, out});  // GetSurfaceLevel
+    uint32_t rt_surf = ld32(out);
+    vcall(dev, GETRT, {0, out});
+    uint32_t back = ld32(out);
+    // Grid: 16x16 quads in x/z, colours by position.
+    const int N = 16;
+    struct V {
+        float x, y, z;
+        uint32_t c;
+    };
+    std::vector<V> verts;
+    for (int j = 0; j <= N; j++)
+        for (int i = 0; i <= N; i++) {
+            float x = float(i) / N * 2 - 1, z = float(j) / N * 4;
+            uint32_t c = 0xFF000000u | uint32_t(i * 15) << 16 | uint32_t(j * 15) << 8 | 0x60;
+            verts.push_back({x, -0.5f + 0.2f * std::sin(x * 3 + z), z, c});
+        }
+    std::vector<uint16_t> idx;
+    for (int j = 0; j < N; j++)
+        for (int i = 0; i < N; i++) {
+            uint16_t a = uint16_t(j * (N + 1) + i), b = uint16_t(a + 1), c = uint16_t(a + N + 1), d = uint16_t(c + 1);
+            idx.insert(idx.end(), {a, c, b, b, c, d});
+        }
+    uint32_t vbytes = uint32_t(verts.size() * sizeof(V)), ibytes = uint32_t(idx.size() * 2);
+    vcall(dev, CREATEVB, {vbytes, 0, 0x42, 1, out, 0});
+    uint32_t vb = ld32(out);
+    vcall(vb, 11, {0, 0, out, 0});  // Lock
+    memcpy(GM + ld32(out), verts.data(), vbytes);
+    vcall(vb, 12, {});              // Unlock
+    vcall(dev, CREATEIB, {ibytes, 0, 101, 1, out, 0});
+    uint32_t ib = ld32(out);
+    vcall(ib, 11, {0, 0, out, 0});
+    memcpy(GM + ld32(out), idx.data(), ibytes);
+    vcall(ib, 12, {});
+
+    vcall(dev, SETRT, {0, rt_surf});
+    uint32_t vp[6] = {0, 0, 256, 256, 0, fbits(1.0f)};
+    vcall(dev, 47, {gbytes(vp, 24)});  // SetViewport
+    vcall(dev, CLEAR, {0, 0, 1, 0xFF203040, fbits(1.0f), 0});
+    vcall(dev, BEGINSCENE, {});
+    float ident[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    float view[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1.2f, 1};
+    float f = 1.0f / std::tan(0.6f), zn = 0.5f, zf = 50;
+    float proj[16] = {f, 0, 0, 0, 0, f, 0, 0, 0, 0, zf / (zf - zn), 1, 0, 0, -zn * zf / (zf - zn), 0};
+    vcall(dev, SETTRANSFORM, {256, matrix(ident)});
+    vcall(dev, SETTRANSFORM, {2, matrix(view)});
+    vcall(dev, SETTRANSFORM, {3, matrix(proj)});
+    vcall(dev, SETRENDERSTATE, {137, 0});  // no lighting: vertex colours
+    vcall(dev, SETRENDERSTATE, {7, 0});
+    vcall(dev, SETRENDERSTATE, {22, 1});
+    vcall(dev, SETRENDERSTATE, {27, 0});
+    vcall(dev, SETRENDERSTATE, {28, 1});           // fog
+    vcall(dev, SETRENDERSTATE, {35, 3});           // table, linear
+    vcall(dev, SETRENDERSTATE, {34, 0xFF203040});  // fog colour = clear colour
+    vcall(dev, SETRENDERSTATE, {36, fbits(2.0f)});
+    vcall(dev, SETRENDERSTATE, {37, fbits(5.0f)});
+    vcall(dev, SETTEXTURE, {0, 0});
+    vcall(dev, SETTSS, {0, 1, 3});
+    vcall(dev, SETTSS, {0, 4, 3});
+    vcall(dev, SETFVF, {0x42});
+    vcall(dev, SETSTREAM, {0, vb, 0, uint32_t(sizeof(V))});
+    vcall(dev, SETINDICES, {ib});
+    vcall(dev, DRAWINDEXED, {4, 0, 0, uint32_t(verts.size()), 0, uint32_t(idx.size() / 3)});
+    vcall(dev, ENDSCENE, {});
+    vcall(dev, SETRENDERSTATE, {28, 0});
+
+    // Back to the frame: the render target shown twice.
+    vcall(dev, SETRT, {0, back});
+    vp[2] = 800, vp[3] = 600;
+    vcall(dev, 47, {gbytes(vp, 24)});
+    vcall(dev, CLEAR, {0, 0, 3, 0xFF101010, fbits(1.0f), 0});
+    vcall(dev, BEGINSCENE, {});
+    struct Q {
+        float x, y, z, rhw;
+        uint32_t c;
+        float u, v;
+    };
+    auto rect = [&](float x0, float y0, float x1, float y1) {
+        Q q[4] = {{x0 - 0.5f, y0 - 0.5f, 0, 1, 0xFFFFFFFF, 0, 0}, {x1 - 0.5f, y0 - 0.5f, 0, 1, 0xFFFFFFFF, 1, 0},
+                  {x0 - 0.5f, y1 - 0.5f, 0, 1, 0xFFFFFFFF, 0, 1}, {x1 - 0.5f, y1 - 0.5f, 0, 1, 0xFFFFFFFF, 1, 1}};
+        vcall(dev, SETFVF, {0x144});
+        vcall(dev, DRAWUP, {5, 2, gbytes(q, sizeof q), 28});
+    };
+    vcall(dev, SETTEXTURE, {0, rt_tex});
+    vcall(dev, SETSAMPLER, {0, 5, 2});
+    vcall(dev, SETSAMPLER, {0, 6, 2});
+    vcall(dev, SETTSS, {0, 1, 4});
+    vcall(dev, SETTSS, {0, 2, 2});
+    vcall(dev, SETTSS, {0, 3, 0});
+    vcall(dev, SETTSS, {0, 4, 2});
+    vcall(dev, SETTSS, {0, 5, 2});
+    rect(40, 100, 360, 420);
+    vcall(dev, SETRENDERSTATE, {60, 0xFF8080FF});  // texture factor
+    vcall(dev, SETTSS, {1, 1, 5});                 // stage 1: MODULATE2X current, tfactor
+    vcall(dev, SETTSS, {1, 2, 1});
+    vcall(dev, SETTSS, {1, 3, 3});
+    vcall(dev, SETTSS, {1, 4, 2});
+    vcall(dev, SETTSS, {1, 5, 1});
+    rect(440, 100, 760, 420);
+    vcall(dev, SETTSS, {1, 1, 1});
+    vcall(dev, SETTSS, {1, 4, 1});
+    vcall(dev, SETTEXTURE, {0, 0});
+    vcall(dev, ENDSCENE, {});
+    vcall(dev, PRESENT, {0, 0, 0, 0});
+}
+
 uint32_t make_device() {
     uint32_t create = resolve_import("d3d9.dll", "Direct3DCreate9");
     uint32_t d3d = call_guest(cpu, create, {32});
@@ -234,54 +350,69 @@ bool frame(uint32_t dev_obj, std::vector<uint32_t> &px, uint32_t &w, uint32_t &h
 }
 }  // namespace
 
+
 int main(int argc, char **argv) {
     std::string out = argc > 1 ? argv[1] : ".";
     memory_init();
     cpu = new_cpu(kMainStack);
+    void (*scenes[])(uint32_t) = {draw_scene, draw_scene2};
+    const int nscenes = 2;
 
+    // Each scene on a device of its own, first with the software renderer...
+    std::vector<std::vector<uint32_t>> soft_frames(nscenes);
+    uint32_t w = 0, h = 0;
     d3d::SoftOptions so;
     so.dir = out;
     so.every = 1;
     auto soft = d3d::make_soft_renderer(so);
     d3d::Renderer *soft_r = soft.get();
     d3d::set_renderer(std::move(soft));
-    uint32_t d1 = make_device();
-    draw_scene(d1);
-    std::vector<uint32_t> a, b;
-    uint32_t w = 0, h = 0, w2 = 0, h2 = 0;
-    if (!frame(d1, a, w, h, soft_r)) fatal("no soft frame");
-    d3d::save_png(out + "/soft.png", w, h, a);
+    for (int s = 0; s < nscenes; s++) {
+        uint32_t d = make_device();
+        scenes[s](d);
+        if (!frame(d, soft_frames[s], w, h, soft_r)) fatal("no soft frame");
+        d3d::save_png(out + "/scene" + std::to_string(s + 1) + "_soft.png", w, h, soft_frames[s]);
+    }
 
     id<MTLDevice> mdev = MTLCreateSystemDefaultDevice();
     if (!mdev) {
-        printf("no Metal device: soft frame only\n");
-        return 0;
+        printf("no Metal device: soft frames only\n");
+        fflush(stdout);
+        _exit(0);
     }
     printf("Metal device: %s\n", mdev.name.UTF8String);
+    // ...then with Metal, compared: channels within 12, at most 1.5% of pixels different
+    // (edges are rasterised a little differently).
     CAMetalLayer *layer = [CAMetalLayer layer];
     layer.device = mdev;
     layer.drawableSize = CGSizeMake(800, 600);
     auto metal = d3d::make_metal_renderer((__bridge void *)layer);
     d3d::Renderer *metal_r = metal.get();
     d3d::set_renderer(std::move(metal));
-    uint32_t d2 = make_device();
-    draw_scene(d2);
-    if (!frame(d2, b, w2, h2, metal_r)) fatal("no Metal frame");
-    d3d::save_png(out + "/metal.png", w2, h2, b);
-
-    // Compare: channels within 12, and at most 1.5% of pixels different (edges are
-    // rasterised a little differently).
-    size_t bad = 0;
-    std::vector<uint32_t> diff(a.size());
-    for (size_t i = 0; i < a.size() && i < b.size(); i++) {
-        int worst = 0;
-        for (int s = 0; s < 24; s += 8) worst = std::max(worst, std::abs(int((a[i] >> s) & 0xFF) - int((b[i] >> s) & 0xFF)));
-        if (worst > 12) bad++;
-        diff[i] = worst > 12 ? 0xFFFF0000 : (a[i] & 0xFEFEFE) >> 1;
+    int failed = 0;
+    for (int s = 0; s < nscenes; s++) {
+        uint32_t d = make_device();
+        scenes[s](d);
+        std::vector<uint32_t> b;
+        uint32_t w2, h2;
+        if (!frame(d, b, w2, h2, metal_r)) fatal("no Metal frame");
+        std::string name = out + "/scene" + std::to_string(s + 1);
+        d3d::save_png(name + "_metal.png", w2, h2, b);
+        const auto &a = soft_frames[s];
+        size_t bad = 0;
+        std::vector<uint32_t> diff(a.size());
+        for (size_t i = 0; i < a.size() && i < b.size(); i++) {
+            int worst = 0;
+            for (int k = 0; k < 24; k += 8)
+                worst = std::max(worst, std::abs(int((a[i] >> k) & 0xFF) - int((b[i] >> k) & 0xFF)));
+            if (worst > 12) bad++;
+            diff[i] = worst > 12 ? 0xFFFF0000 : (a[i] & 0xFEFEFE) >> 1;
+        }
+        d3d::save_png(name + "_diff.png", w, h, diff);
+        double pct = 100.0 * double(bad) / double(a.size());
+        printf("scene %d: %zu of %zu pixels differ (%.2f%%)\n", s + 1, bad, a.size(), pct);
+        if (pct > 1.5) failed++;
     }
-    d3d::save_png(out + "/diff.png", w, h, diff);
-    double pct = 100.0 * double(bad) / double(a.size());
-    printf("%zu of %zu pixels differ (%.2f%%)\n", bad, a.size(), pct);
     fflush(stdout);
-    _exit(pct <= 1.5 ? 0 : 1);  // skip static destructors (threads may still hold locks)
+    _exit(failed ? 1 : 0);  // skip static destructors (threads may still hold locks)
 }
