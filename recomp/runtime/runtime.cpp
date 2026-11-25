@@ -56,9 +56,17 @@ void fatal(const char *fmt, ...) {
 // ---- memory ----
 void memory_init() {
     if (GM) return;
-    void *p = mmap(nullptr, size_t(1) << 32, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
-                   -1, 0);
-    if (p == MAP_FAILED) fatal("cannot reserve the 4 GiB guest address space");
+#if defined(__APPLE__)
+    // iOS limits a process's address space: reserve what the guest uses (modules, heap and
+    // stacks end below kHeapEnd; thunk addresses above it are never read as memory).
+    const size_t size = size_t(1) << 31;
+    const int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+#else
+    const size_t size = size_t(1) << 32;
+    const int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
+#endif
+    void *p = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
+    if (p == MAP_FAILED) fatal("cannot reserve the guest address space");
     GM = static_cast<uint8_t *>(p);
 }
 

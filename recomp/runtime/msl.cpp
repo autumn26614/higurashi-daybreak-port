@@ -56,7 +56,7 @@ struct FFBlock {
     float4 misc;          // x specular power
     uint4 flags;          // x lighting, y colour vertex, z blend weights, w normalize normals
     uint4 sources;        // diffuse, specular, ambient, emissive material sources (0 material, 1 colour1, 2 colour2)
-    uint4 fogv;           // x vertex fog mode, y range fog
+    uint4 fogv;           // x vertex fog mode, y the vertex has a specular colour
     uint4 counts;         // x lights
     Light lights[8];
 };
@@ -110,6 +110,28 @@ inline float4 finish(float4 col, VOut in, constant DrawBlock &d) {
 
 std::string fixed_function() {
     return R"MSL(
+// Presenting the frame (and the movie) on the screen.
+struct BlitOut { float4 pos [[position]]; float2 uv; };
+vertex BlitOut blit_vs(uint vid [[vertex_id]], constant float4 &rect [[buffer(0)]]) {
+    float2 uv = float2((vid & 1) ? 1.0 : 0.0, (vid & 2) ? 1.0 : 0.0);
+    BlitOut o;
+    o.pos = float4(mix(rect.x, rect.z, uv.x), mix(rect.y, rect.w, uv.y), 0.0, 1.0);
+    o.uv = uv;
+    return o;
+}
+fragment float4 blit_fs(BlitOut in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) {
+    return float4(t.sample(s, in.uv).rgb, 1.0);
+}
+
+// Clear with rectangles: a quad at depth z.x in the colour c.
+struct ClearOut { float4 pos [[position]]; };
+vertex ClearOut clear_vs(uint vid [[vertex_id]], constant float4 &z [[buffer(0)]]) {
+    ClearOut o;
+    o.pos = float4((vid & 1) ? 1.0 : -1.0, (vid & 2) ? -1.0 : 1.0, z.x, 1.0);
+    return o;
+}
+fragment float4 clear_fs(ClearOut in [[stage_in]], constant float4 &c [[buffer(0)]]) { return c; }
+
 struct FFIn {
     float4 pos [[attribute(0)]];
     float4 post [[attribute(1)]];
@@ -205,6 +227,8 @@ vertex VOut ff_vertex(FFIn in [[stage_in]], constant FFBlock &f [[buffer(30)]], 
         if (mode == 3.0) o.fog = (d.fog.y - z) / max(1e-6, d.fog.y - d.fog.x);
         else if (mode == 1.0) o.fog = exp(-d.fog.z * z);
         else o.fog = exp(-(d.fog.z * z) * (d.fog.z * z));
+    } else if (f.fogv.y != 0) {
+        o.fog = in.c1.a;  // no fog mode: the specular alpha is the fog factor
     }
     o.c0 = saturate(o.c0);
     o.c1 = saturate(o.c1);

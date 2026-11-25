@@ -1,0 +1,56 @@
+# The static recompilation runtime on Apple's toolchain, without any game data: the
+# runtime (with the Metal renderer and CoreText glyphs) compiles for macOS and the iOS
+# simulator, and the Metal Shading Language it generates compiles with Apple's compiler.
+name: recomp (Apple toolchain)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/recomp.yml', 'recomp/**']
+
+permissions:
+  contents: read
+
+jobs:
+  apple:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runtime compiles (macOS)
+        working-directory: recomp
+        run: |
+          set -e
+          mkdir -p /tmp/o
+          for f in runtime/*.cpp; do
+            clang++ -std=c++17 -O1 -Wall -Wno-unused-parameter -Iruntime -c "$f" -o "/tmp/o/$(basename "$f").o"
+          done
+          for f in runtime/*.mm; do
+            clang++ -std=c++17 -O1 -fobjc-arc -Wall -Wno-unused-parameter -Iruntime -c "$f" -o "/tmp/o/$(basename "$f").o"
+          done
+          ls /tmp/o
+
+      - name: Runtime compiles (iOS simulator)
+        working-directory: recomp
+        run: |
+          set -e
+          SDK=$(xcrun -sdk iphonesimulator --show-sdk-path)
+          mkdir -p /tmp/s
+          for f in runtime/*.cpp runtime/*.mm; do
+            xcrun -sdk iphonesimulator clang++ -target x86_64-apple-ios16.0-simulator -isysroot "$SDK" -std=c++17 -O1 \
+              -fobjc-arc -Wall -Wno-unused-parameter -Iruntime -c "$f" -o "/tmp/s/$(basename "$f").o"
+          done
+
+      - name: Generated Metal Shading Language compiles
+        working-directory: recomp
+        run: |
+          set -e
+          clang++ -std=c++17 -Iruntime tools/msl_check.cpp runtime/msl.cpp runtime/shader.cpp -o /tmp/msl_check
+          mkdir -p /tmp/msl
+          /tmp/msl_check /tmp/msl
+          for f in /tmp/msl/*.metal; do
+            echo "== $f"
+            xcrun -sdk iphonesimulator metal -std=ios-metal2.4 -c "$f" -o "/tmp/msl/$(basename "$f" .metal).air"
+          done
