@@ -54,6 +54,8 @@ const std::vector<uint32_t> kVertex = {
     0x4E, dst(T, 10), src(T, 9, 0xFF),                        // expp r10, r9.w
     0x01, dst(RAST, 1, 1), src(T, 10, 0x00),                  // mov oFog, r10.x
     0x01, dst(TEXC, 0, 3), src(V, 2),                         // mov oT0.xy, v2
+    0x09, dst(T, 11, 1), src(V, 0), src(C, 9),                // dp4 r11.x, v0, c9
+    0x0A, dst(T, 11, 2), src(T, 4), src(C, 90, 0x55),         // min r11.y, r4, c90.y
     0x01, dst(ATTR, 1), src(T, 5),                            // mov oD1, r5
     0x0000FFFF,
 };
