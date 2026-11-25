@@ -712,10 +712,12 @@ static uint32_t present(CPU *c) {
     if (getenv("RECOMP_FPS") && d->frames % 600 == 0) {  // RECOMP_FPS: frame rate every 600 frames
         static auto last = std::chrono::steady_clock::now();
         static uint64_t last_draws = 0;
+        static bool first = true;
         auto now = std::chrono::steady_clock::now();
         double s = std::chrono::duration<double>(now - last).count();
-        log("recomp: frame %llu: %.1f fps, %.0f draws/frame, guest heap %u MiB", (unsigned long long)d->frames, 600 / s,
+        if (!first) log("recomp: frame %llu: %.1f fps, %.0f draws/frame, guest heap %u MiB", (unsigned long long)d->frames, 600 / s,
             double(d->draws - last_draws) / 600, heap_used() >> 20);
+        first = false;  // the first interval starts at an arbitrary point
         last = now;
         last_draws = d->draws;
     }

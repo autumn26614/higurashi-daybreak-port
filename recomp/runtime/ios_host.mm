@@ -39,14 +39,21 @@ void recomp_start(const char *dir, void *layer) {
     if (started || !rt::game_translated()) return;
     started = true;
     rt::d3d::set_renderer(rt::d3d::make_metal_renderer(layer));
-    // Translated code recurses on the host stack as deeply as the game does on its own.
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, size_t(256) << 20);
-    pthread_t t;
-    pthread_create(&t, &attr, game_thread, new StartArgs{dir});
-    pthread_attr_destroy(&attr);
-    pthread_detach(t);
+    // Translated code recurses on the host stack as deeply as the game does on its own: a
+    // big stack, smaller if the system will not give it.
+    auto *args = new StartArgs{dir};
+    for (size_t mib : {64, 32, 16}) {
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, mib << 20);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_t t;
+        int err = pthread_create(&t, &attr, game_thread, args);
+        pthread_attr_destroy(&attr);
+        if (err == 0) return;
+        rt::log("recomp: no game thread with a %zu MiB stack (%d)", mib, err);
+    }
+    rt::fatal("cannot start the game thread");
 }
 
 void recomp_key(uint32_t dik, int down) { rt::input::set_key(dik, down != 0); }
