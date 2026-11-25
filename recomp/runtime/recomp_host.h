@@ -15,6 +15,10 @@ int recomp_files_present(const char *dir);
 void recomp_start(const char *dir, void *layer);
 // Keyboard input as DirectInput key codes (DIK_*).
 void recomp_key(uint32_t dik, int down);
+// A game controller (connect it before the game starts): sticks -1..1 (y down), buttons
+// in DirectInput order (XInput layout: A B X Y LB RB Back Start LS RS, then the triggers),
+// POV in degrees clockwise from up or -1.
+void recomp_joystick(int connected, float x, float y, float rx, float ry, uint32_t buttons, int pov);
 // Pulls `frames` stereo frames of 16-bit sound at 44.1 kHz from the mixer.
 void recomp_audio(int16_t *out, int frames);
 

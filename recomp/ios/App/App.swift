@@ -71,7 +71,10 @@ struct GameScreen: View {
             MetalGameView(folder: folder).ignoresSafeArea()
             TouchControls()
         }
-        .onAppear { audio.start() }
+        .onAppear {
+            audio.start()
+            ControllerInput.shared.start()
+        }
     }
 }
 

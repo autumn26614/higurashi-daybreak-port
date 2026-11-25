@@ -53,5 +53,17 @@ void recomp_key(uint32_t dik, int down) { rt::input::set_key(dik, down != 0); }
 
 void recomp_audio(int16_t *out, int frames) { rt::audio::mix(out, frames); }
 
+void recomp_joystick(int connected, float x, float y, float rx, float ry, uint32_t buttons, int pov) {
+    rt::input::Joystick j;
+    j.connected = connected != 0;
+    j.x = x;
+    j.y = y;
+    j.rx = rx;
+    j.ry = ry;
+    j.buttons = buttons;
+    j.pov = pov;
+    rt::input::set_joystick(j);
+}
+
 }  // extern "C"
 #endif

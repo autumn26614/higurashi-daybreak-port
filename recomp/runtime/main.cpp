@@ -46,8 +46,17 @@ public:
     void draw(rt::d3d::Device &d, const rt::d3d::Draw &dr) override { inner_->draw(d, dr); }
     void present(rt::d3d::Device &d) override {
         inner_->present(d);
-        for (auto &e : events_)
-            if (e.frame == d.frames) rt::input::set_key(e.key, e.down);
+        for (auto &e : events_) {
+            if (e.frame != d.frames) continue;
+            if (e.key >= 0x1000) {  // pad button (bit e.key - 0x1000)
+                rt::input::Joystick j = rt::input::joystick();
+                uint32_t bit = 1u << ((e.key - 0x1000) & 31);
+                j.buttons = e.down ? (j.buttons | bit) : (j.buttons & ~bit);
+                rt::input::set_joystick(j);
+            } else {
+                rt::input::set_key(e.key, e.down);
+            }
+        }
     }
 
 private:
@@ -67,6 +76,11 @@ int main(int argc, char **argv) {
         return 2;
     }
     rt::game_load(argv[1]);
+    if (getenv("RECOMP_PAD")) {  // a connected game controller (scripted keys 1000+ press its buttons)
+        rt::input::Joystick j;
+        j.connected = true;
+        rt::input::set_joystick(j);
+    }
     rt::audio::start_headless();
     // RECOMP_SHOTS="<dir>:<every>[:<first>]" writes frames as PNG with the software renderer.
     std::unique_ptr<rt::d3d::Renderer> r;

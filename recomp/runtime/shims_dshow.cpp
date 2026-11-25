@@ -179,11 +179,16 @@ void run_player(std::shared_ptr<Graph> g) {
         double dt = std::min(0.1, std::chrono::duration<double>(now - last).count());
         last = now;
         if (g->state != 2) continue;
-        // RECOMP_SKIP_MOVIES (headless tests): play 200 times as fast, without sound.
+        // RECOMP_SKIP_MOVIES (headless tests): a second of the movie, without sound, then the
+        // end (the game's reader keeps to the movie's bitrate, so faster decoding cannot help).
         static const bool fast = getenv("RECOMP_SKIP_MOVIES") && *getenv("RECOMP_SKIP_MOVIES");
         if (fast) {
             plm_set_audio_enabled(g->plm, 0);
-            dt *= 200;
+            if (g->position > 1.0) {
+                g->state = 0;
+                g->post(1, S_OK, 0);  // EC_COMPLETE
+                break;
+            }
         } else if (audio::stream_queued() > 0.25) {
             continue;  // keep pace with the sound actually played
         }
