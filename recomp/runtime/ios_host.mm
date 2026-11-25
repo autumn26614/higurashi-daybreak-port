@@ -9,6 +9,7 @@
 #include "audio.h"
 #include "d3d9.h"
 #include "game.h"
+#include "log.h"
 #include "input.h"
 #include "metal.h"
 #include "runtime.h"
@@ -32,6 +33,9 @@ void *game_thread(void *p) {
 extern "C" {
 
 static rt::Game game_of(int kai) { return kai ? rt::Game::kai : rt::Game::base; }
+
+// Where the log goes (latest.txt, crash.txt): the app's Logs folder. Call before recomp_start.
+void recomp_log_open(const char *dir) { rt::log_open(dir); }
 
 int recomp_has_game(int kai) { return rt::game_translated(game_of(kai)) ? 1 : 0; }
 

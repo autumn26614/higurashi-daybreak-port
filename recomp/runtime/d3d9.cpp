@@ -709,7 +709,7 @@ static uint32_t present(CPU *c) {
     auto d = dev(c);
     renderer().present(*d);
     d->frames++;
-    if (getenv("RECOMP_FPS") && d->frames % 600 == 0) {  // RECOMP_FPS: frame rate every 600 frames
+    if (d->frames % 600 == 0) {  // every 600 frames (about 10 s): the frame rate, for the log
         static auto last = std::chrono::steady_clock::now();
         static uint64_t last_draws = 0;
         static bool first = true;

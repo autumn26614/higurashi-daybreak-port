@@ -45,8 +45,14 @@ $(BUILD)/rt/%.o: runtime/%.cpp $(wildcard runtime/*.h)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 
-link: $(GEN_OBJ) $(RT_OBJ)
-	$(CXX) $(GEN_OBJ) $(RT_OBJ) -o $(BUILD)/daybreak-recomp -rdynamic -lpthread -lm
+# gen_stub.o: empty weak tables for a game that is not translated (Kai, in a base-only build);
+# the translated tables replace them.
+$(BUILD)/gen_stub.o: runtime/gen_stub.c runtime/x86.h
+	@mkdir -p $(dir $@)
+	$(CC) -c -O1 -Iruntime runtime/gen_stub.c -o $@
+
+link: $(GEN_OBJ) $(RT_OBJ) $(BUILD)/gen_stub.o
+	$(CXX) $(GEN_OBJ) $(RT_OBJ) $(BUILD)/gen_stub.o -o $(BUILD)/daybreak-recomp -rdynamic -lpthread -lm
 
 run: all
 	$(BUILD)/daybreak-recomp "$(GAME)"

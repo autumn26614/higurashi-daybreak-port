@@ -27,7 +27,8 @@ for opt in -O0 -O1 -O2 -Os; do
     for f in "$d"/gen/T_*.c; do gcc -O1 -w -I"$root/runtime" -I"$d/gen" -c "$f" -o "$f.o"; done
     g++ -std=c++17 -O1 -w -I"$root/runtime" -c "$root/runtime/runtime.cpp" -o "$d/runtime.o"
     g++ -std=c++17 -O1 -w -I"$root/runtime" -c "$root/runtime/host.cpp" -o "$d/host.o"
-    g++ "$d/harness.o" "$d"/gen/*.o "$d/runtime.o" "$d/host.o" "$d/native_n.o" -o "$d/harness" -lpthread -lm
+    g++ -std=c++17 -O1 -w -I"$root/runtime" -c "$root/runtime/log.cpp" -o "$d/log.o"
+    g++ "$d/harness.o" "$d"/gen/*.o "$d/runtime.o" "$d/host.o" "$d/log.o" "$d/native_n.o" -o "$d/harness" -lpthread -lm
     echo "== $opt ($(tail -1 "$d/lift.log"))"
     "$d/harness" "$d/cases.exe" || status=1
 done

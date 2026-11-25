@@ -12,6 +12,8 @@ extern "C" {
 int recomp_has_game(int kai);
 // 1 if `dir` holds the game: its exe, d3dx9_25.dll and daybreak00-02.dat (Kai: also 04-06).
 int recomp_files_present(const char *dir, int kai);
+// Opens the log in `dir` (and the crash handler). Call before recomp_start.
+void recomp_log_open(const char *dir);
 // Starts the game on its own thread, drawing into `layer` (a CAMetalLayer*). Once only.
 void recomp_start(const char *dir, void *layer, int kai);
 // Keyboard input as DirectInput key codes (DIK_*).

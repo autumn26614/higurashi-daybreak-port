@@ -417,6 +417,7 @@ void run_player(std::shared_ptr<Graph> g) {
             plm_set_audio_enabled(g->plm, 0);
             if (g->position > 1.0) {
                 g->state = 0;
+                log("recomp: movie complete (%llu pictures)", (unsigned long long)g->serial);
                 g->post(1, S_OK, 0);  // EC_COMPLETE
                 break;
             }
@@ -427,7 +428,8 @@ void run_player(std::shared_ptr<Graph> g) {
         g->position += dt;
         if (plm_has_ended(g->plm)) {
             g->state = 0;
-            g->post(1, S_OK, 0);  // EC_COMPLETE
+            log("recomp: movie complete (%llu pictures)", (unsigned long long)g->serial);
+                g->post(1, S_OK, 0);  // EC_COMPLETE
             break;
         }
     }

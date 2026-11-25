@@ -25,6 +25,17 @@ enum GameKind: Int, CaseIterable, Identifiable {
     var translated: Bool { recomp_has_game(Int32(rawValue)) != 0 }
 }
 
+/// The game's log files (runtime/log.cpp writes them): Documents/Logs, shown in Files as Logs.
+enum LogFiles {
+    static var dir: URL { GameFolder.documents.appendingPathComponent("Logs") }
+
+    static var existing: [URL] {
+        ["crash.txt", "latest.txt", "previous-crash.txt", "previous.txt"]
+            .map { dir.appendingPathComponent($0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+}
+
 /// Where the game files go: the app's Documents folder, or a "Daybreak" or "data" folder in
 /// it (Files › On My iPhone › Daybreak DX). One folder can hold both games.
 enum GameFolder {
@@ -131,6 +142,7 @@ struct RootView: View {
                             .multilineTextAlignment(.center)
                             .font(.callout)
                     }
+                    logSection
                     if !folders.isEmpty {
                         Text("Touch controls appear on screen. Game controllers and keyboards work too; the gear in the corner sets the controls up.")
                             .font(.footnote)
@@ -144,6 +156,25 @@ struct RootView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    /// The logs of the last runs and of any crash, to share (AirDrop, Mail, Files...).
+    private var logSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("LOGS").font(Theme.title(15)).foregroundStyle(Theme.ember)
+            let files = LogFiles.existing
+            if files.isEmpty {
+                Text("Nothing logged yet. Play a game, then come back here.").font(.footnote)
+            }
+            ForEach(files, id: \.self) { url in
+                ShareLink(item: url) {
+                    Label(url.lastPathComponent, systemImage: url.lastPathComponent.contains("crash") ? "exclamationmark.triangle" : "doc.text")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .overlay(Rectangle().stroke(Color.white.opacity(0.4), lineWidth: 1))
     }
 
     private func missingFiles(_ game: GameKind) -> some View {
@@ -238,6 +269,7 @@ struct MetalGameView: UIViewRepresentable {
             layer.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
             if !started, bounds.width > 0, let folder {
                 started = true
+                recomp_log_open(LogFiles.dir.path)
                 recomp_start(folder.path, Unmanaged.passUnretained(layer).toOpaque(), kai ? 1 : 0)
             }
         }

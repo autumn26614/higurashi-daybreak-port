@@ -28,33 +28,21 @@ namespace rt {
 bool trace_imports = getenv("RECOMP_TRACE") != nullptr;
 uint32_t heap_end = kHeapEnd;
 
-void log(const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
-    fputc('\n', stderr);
-}
-
 void fatal(const char *fmt, ...) {
+    char text[512];
     va_list ap;
     va_start(ap, fmt);
-    fputs("recomp: fatal: ", stderr);
-    vfprintf(stderr, fmt, ap);
+    vsnprintf(text, sizeof text, fmt, ap);
     va_end(ap);
-    fputc('\n', stderr);
+    log("recomp: fatal: %s", text);
     if (CPU *c = current()) {
-        fprintf(stderr, "  eax=%08x ecx=%08x edx=%08x ebx=%08x esp=%08x ebp=%08x esi=%08x edi=%08x\n", c->r[0],
-                c->r[1], c->r[2], c->r[3], c->r[4], c->r[5], c->r[6], c->r[7]);
-        fprintf(stderr, "  stack:");
-        for (int i = 0; i < 12; i++) fprintf(stderr, " %08x", ld32(c->r[4] + 4 * i));
-        fputc('\n', stderr);
+        log("  eax=%08x ecx=%08x edx=%08x ebx=%08x esp=%08x ebp=%08x esi=%08x edi=%08x", c->r[0], c->r[1],
+            c->r[2], c->r[3], c->r[4], c->r[5], c->r[6], c->r[7]);
+        log("  stack: %08x %08x %08x %08x %08x %08x %08x %08x", ld32(c->r[4]), ld32(c->r[4] + 4),
+            ld32(c->r[4] + 8), ld32(c->r[4] + 12), ld32(c->r[4] + 16), ld32(c->r[4] + 20), ld32(c->r[4] + 24),
+            ld32(c->r[4] + 28));
     }
-    // The host call chain: the translated functions appear by name (F_xxxxxxxx).
-    void *frames[48];
-    int n = backtrace(frames, 48);
-    fflush(stderr);
-    backtrace_symbols_fd(frames, n, 2);
+    // The host call chain goes into the crash report (the abort below writes it).
     abort();
 }
 
