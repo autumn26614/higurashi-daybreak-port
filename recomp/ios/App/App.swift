@@ -129,7 +129,7 @@ struct GameScreen: View {
                 LinearGradient(colors: [Color(red: 0.35, green: 0.45, blue: 0.6), Color(red: 0.55, green: 0.45, blue: 0.3)],
                                startPoint: .top, endPoint: .bottom).ignoresSafeArea()
             }
-            if !controller || withController {
+            if !controller || withController || preview != .none {  // (the simulator has a virtual controller)
                 TouchControls(demo: preview == .pressed)
             }
             VStack {
