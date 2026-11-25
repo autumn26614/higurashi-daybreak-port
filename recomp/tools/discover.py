@@ -162,19 +162,23 @@ def discover(img, extra_seeds=()):
     strong_work = [img.base + img.pe.entry_rva] + [img.base + rva for rva, _, _ in img.pe.exports()]
     strong_work += list(extra_seeds)
     candidates = set()
-    for s in img.pe.sections:
-        if s.executable:
-            continue
-        for off in range(0, s.vsize - 3, 4):
-            v = img.u32(img.base + s.va + off)
-            if v is not None and img.in_code(v):
-                candidates.add(v)
-    # Every absolute pointer a DLL holds is listed in its relocations, wherever it lives
-    # (d3dx9 keeps its read-only tables inside .text).
-    for r in img.pe.relocations():
+    relocs = img.pe.relocations()
+    # An image with relocations lists every absolute pointer it holds, wherever it lives
+    # (d3dx9 keeps its read-only tables inside .text): those are exact. Without them (the
+    # exe), scan the data for values that point into the code, and collect immediates.
+    for r in relocs:
         v = img.u32(img.base + r)
         if v is not None and img.in_code(v):
             candidates.add(v)
+    scan = not relocs
+    if scan:
+        for s in img.pe.sections:
+            if s.executable:
+                continue
+            for off in range(0, s.vsize - 3, 4):
+                v = img.u32(img.base + s.va + off)
+                if v is not None and img.in_code(v):
+                    candidates.add(v)
 
     def take(start, strong):
         ok, got, calls, imms, tables, ic, ij = ex.explore(start, insns, strict=not strong)
@@ -186,7 +190,8 @@ def discover(img, extra_seeds=()):
         counts[1] += ij
         (functions if strong else weak).add(start)
         strong_work.extend(calls)
-        candidates.update(imms)
+        if scan:
+            candidates.update(imms)
         return True
 
     rejected = set()

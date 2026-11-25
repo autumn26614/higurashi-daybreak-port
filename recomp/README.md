@@ -46,27 +46,47 @@ C into `gen/` (git-ignored); the build compiles that together with `runtime/`.
 ## Build and run (Linux/WSL, headless)
 
 ```sh
-make GEN=/tmp/rgen BUILD=/tmp/rbuild -j12    # translate, then compile (about a minute)
-/tmp/rbuild/daybreak-recomp "<folder with daybreak.exe>"
-RECOMP_TRACE=1 ...                           # log every import call
+make GEN=/tmp/rgen BUILD=/tmp/rbuild -j8     # translate both modules, then compile
+/tmp/rbuild/daybreak-recomp "<folder with daybreak.exe and d3dx9_25.dll>"
+tools/run_shots.sh <seconds> <every> <first> [keys]   # PNG frames into /tmp/shots
 ```
 
-Needs Python 3 with Capstone 5 (`~/.local/daybreak-py` is searched).
+Keep the game folder on a Linux file system (WSL's `/mnt/c` is slow). Needs Python 3 with
+Capstone 5 (`~/.local/daybreak-py` is searched).
+
+Environment switches:
+
+| Variable | Effect |
+|---|---|
+| `RECOMP_SHOTS=dir:every[:first]` | software renderer; writes every Nth frame as PNG |
+| `RECOMP_KEYS=600:1c:down,606:1c:up,t40:1c:down` | scripted DirectInput keys by frame, or by seconds (`t`) |
+| `RECOMP_SKIP_MOVIES=1` | movies play 200× fast without sound |
+| `RECOMP_TRACE=1` | log every import call with its return address |
+| `RECOMP_DRAWLOG=<frame>` | describe every draw of that frame |
+| `RECOMP_SAMPLE=<seconds>` | every guest thread prints its host backtrace that often |
+| `RECOMP_PROTECT=<address>` | make a guest page read-only and report who writes it |
+| `RECOMP_NOVSYNC=1` | do not pace Present to 60 Hz |
 
 ## Status
 
-- 4,401 functions are translated. Untranslated instructions fall into the few `int3`
-  paddings and data that only looks like code.
-- The C runtime, kernel32, user32, gdi32 handles, winmm (timers, mmio), imm32 and
-  ole32/oleaut32 are shimmed. Startup runs through the CRT, the game's static constructors,
-  window creation and COM initialisation, and reaches `Direct3DCreate9`.
+- `daybreak.exe` (~4,400 functions) and `d3dx9_25.dll` (~6,000) are translated. D3DX runs
+  as Microsoft wrote it (effects, .X parsing, meshes, animation); `cpuid` reports a CPU
+  without SIMD so it stays on its x87 paths.
+- Shimmed: the C runtime, kernel32 (threads, events, semaphores, fair critical
+  sections, files), user32, gdi32 (fonts through a glyph interface), winmm (timers, mmio),
+  imm32, ole32/oleaut32, advapi32, Direct3D 9 (over guest memory, with a renderer
+  interface), DirectInput 8 (keyboard), DirectSound 8 (software mixer, 3D, notifications),
+  DirectShow (the game's movies: its own source filter, pl_mpeg decoding, IVideoWindow).
+- Running headless with the software renderer: opening movie → title → story intro movie
+  → team select → weapon select, all drawn by the game's own code.
 
 ## Next
 
-1. Direct3D 9 (`IDirect3D9`, `IDirect3DDevice9`, textures, buffers) on a recording backend,
-   then on Metal. Also the D3DX functions the game imports: math, `D3DXLoadMeshHierarchyFromXInMemory`,
-   `D3DXCreateEffect`.
-2. DirectInput 8 (keyboard and pad), DirectSound (buffers, 3D), DirectShow for the movies.
-3. GDI text: `GetGlyphOutlineA` on CoreText.
-4. iOS: a smaller guest reservation, a game thread with a large stack, Metal presentation,
-   touch → DirectInput.
+1. Get through to a battle and the story's talk scenes. Text goes through `GetGlyphOutlineA`:
+   CoreText on Apple platforms (placeholder boxes in the Linux build).
+2. Metal renderer (fixed-function stages and vs_1_1/ps_1_1 translated from `shader.h`'s
+   decoded form), and the iOS host: a game thread with a big stack, the guest address
+   space, CAMetalLayer presentation, the movie on top, AudioUnit pulling the mixer,
+   touch and controllers → DirectInput.
+3. Build on macOS: the generated C is made from the player's own `daybreak.exe`, so the
+   iOS build runs the translator first.

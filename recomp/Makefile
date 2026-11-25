@@ -18,18 +18,19 @@ RT_OBJ := $(RUNTIME:runtime/%.cpp=$(BUILD)/rt/%.o)
 all: $(GEN)/stamp
 	$(MAKE) link
 
-# The exe at its own base; d3dx9_25.dll (which prefers the same base) moved to 0x00680000 (between the exe and the heap).
+# The exe at its own base; d3dx9_25.dll (which prefers the same base) moved to 0x00A00000 (below the heap, and outside the values UTF-16 text takes).
 $(GEN)/stamp: tools/lift.py tools/discover.py tools/pe.py
 	$(PYTHON) tools/lift.py "$(GAME)/daybreak.exe" $(GEN) --prefix F
-	$(PYTHON) tools/lift.py "$(GAME)/d3dx9_25.dll" $(GEN) --prefix X --base 0x00680000
+	$(PYTHON) tools/lift.py "$(GAME)/d3dx9_25.dll" $(GEN) --prefix X --base 0x00A00000
 	touch $@
 
 GEN_C = $(wildcard $(GEN)/F_*.c $(GEN)/X_*.c)
 GEN_OBJ = $(GEN_C:$(GEN)/%.c=$(BUILD)/gen/%.o)
+# A few huge generated functions exhaust memory at -O2: those files are built at -O1.
 
 $(BUILD)/gen/%.o: $(GEN)/%.c runtime/x86.h $(GEN)/stamp
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@ || $(CC) $(CFLAGS) -O1 -c $< -o $@
 
 $(BUILD)/rt/%.o: runtime/%.cpp $(wildcard runtime/*.h)
 	@mkdir -p $(dir $@)

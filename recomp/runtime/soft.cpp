@@ -295,7 +295,7 @@ public:
     explicit SoftRenderer(SoftOptions o) : opt_(std::move(o)) {}
 
     void clear(Device &d, uint32_t count, uint32_t rects, uint32_t flags, uint32_t color, float z, uint32_t) override {
-        if (!active(d)) return;
+        if (!active(d) && d.st.render_target == d.backbuffer) return;  // render targets persist: always draw them
         Target t = target(d);
         if (!t.im) return;
         auto fill = [&](int x0, int y0, int x1, int y1) {
@@ -318,7 +318,7 @@ public:
     }
 
     void draw(Device &d, const Draw &dr) override {
-        if (!active(d)) return;
+        if (!active(d) && d.st.render_target == d.backbuffer) return;
         Target t = target(d);
         if (!t.im || bits_per_pixel(t.im->format) != 32) return;
         dev_ = &d;

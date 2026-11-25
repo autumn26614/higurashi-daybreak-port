@@ -164,7 +164,14 @@ void run_player(std::shared_ptr<Graph> g) {
         double dt = std::min(0.1, std::chrono::duration<double>(now - last).count());
         last = now;
         if (g->state != 2) continue;
-        if (audio::stream_queued() > 0.25) continue;  // keep pace with the sound actually played
+        // RECOMP_SKIP_MOVIES (headless tests): play 200 times as fast, without sound.
+        static const bool fast = getenv("RECOMP_SKIP_MOVIES") && *getenv("RECOMP_SKIP_MOVIES");
+        if (fast) {
+            plm_set_audio_enabled(g->plm, 0);
+            dt *= 200;
+        } else if (audio::stream_queued() > 0.25) {
+            continue;  // keep pace with the sound actually played
+        }
         plm_decode(g->plm, dt);
         g->position += dt;
         if (plm_has_ended(g->plm)) {
@@ -180,11 +187,6 @@ void run_player(std::shared_ptr<Graph> g) {
 
 uint32_t start(CPU *, std::shared_ptr<Graph> g) {
     if (!g->reader && g->stream.empty()) return S_FALSE;
-    if (const char *skip = getenv("RECOMP_SKIP_MOVIES"); skip && *skip) {  // headless tests: movies end at once
-        g->state = 0;
-        g->post(1, S_OK, 0);
-        return S_OK;
-    }
     if (g->state == 2 && g->player.joinable()) return S_OK;
     g->halt();
     g->state = 2;

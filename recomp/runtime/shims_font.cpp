@@ -31,35 +31,6 @@ Font current_font() {
 }
 }  // namespace
 
-#if !defined(__APPLE__)
-namespace rt {
-bool font_glyph(const FontSpec &f, uint32_t code, Glyph &g) {
-    int h = f.height < 0 ? -f.height : f.height;
-    if (!h) h = 16;
-    bool wide = code > 0xFF;
-    int adv = wide ? h : h / 2;
-    g.advance = adv;
-    g.ascent = h * 7 / 8;
-    g.descent = h - g.ascent;
-    if (code == ' ' || code == 0x8140) {  // spaces
-        g.width = g.height = 0;
-        g.origin_x = 0;
-        g.origin_y = 0;
-        g.gray.clear();
-        return true;
-    }
-    g.width = adv > 2 ? adv - 2 : 1;
-    g.height = h > 2 ? h - 2 : 1;
-    g.origin_x = 1;
-    g.origin_y = g.ascent - 1;
-    g.gray.assign(size_t(g.width * g.height), 0);
-    for (int y = 0; y < g.height; y++)
-        for (int x = 0; x < g.width; x++)
-            if (x == 0 || y == 0 || x == g.width - 1 || y == g.height - 1) g.gray[size_t(y * g.width + x)] = 64;
-    return true;
-}
-}  // namespace rt
-#endif
 
 SHIM(gdi32, CreateFontA, 56) {
     Font f;
