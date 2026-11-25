@@ -80,13 +80,27 @@ Environment switches:
 - Running headless with the software renderer: opening movie → title → story intro movie
   → team select → weapon select, all drawn by the game's own code.
 
+## iOS
+
+`ios/` is the app: the translated game in a CAMetalLayer view (`runtime/metal.mm`, shaders
+translated to Metal by `runtime/msl.cpp`), touch controls on the game's keyboard keys,
+sound through AVAudioEngine, glyphs from CoreText. On a Mac:
+
+```sh
+pip3 install capstone && brew install xcodegen
+recomp/ios/build.sh "<folder with daybreak.exe and d3dx9_25.dll>"   # translates into recomp/gen
+open recomp/ios/DaybreakRecomp.xcodeproj                            # set a signing team, run
+```
+
+Copy the game's data folder (daybreak.exe, d3dx9_25.dll, daybreak00–02.dat) into the app's
+Documents (Files › On My iPhone › Higurashi Daybreak). CI (`.github/workflows/recomp.yml`)
+builds everything without game data: the runtime for macOS and the simulator, the
+generated Metal code with Apple's compiler, and the app (which then says the code is
+missing).
+
 ## Next
 
-1. Get through to a battle and the story's talk scenes. Text goes through `GetGlyphOutlineA`:
-   CoreText on Apple platforms (placeholder boxes in the Linux build).
-2. Metal renderer (fixed-function stages and vs_1_1/ps_1_1 translated from `shader.h`'s
-   decoded form), and the iOS host: a game thread with a big stack, the guest address
-   space, CAMetalLayer presentation, the movie on top, AudioUnit pulling the mixer,
-   touch and controllers → DirectInput.
-3. Build on macOS: the generated C is made from the player's own `daybreak.exe`, so the
-   iOS build runs the translator first.
+1. Run on a device with the real game: check the Metal renderer against the software
+   renderer's frames, then performance (the translated code is built -O2).
+2. Game controllers (DirectInput joystick), saving to the app's Documents, the controls'
+   layout per screen.
