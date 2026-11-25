@@ -6,7 +6,11 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <time.h>
+#if defined(__APPLE__)
+#include <sys/ucontext.h>  // (<ucontext.h> needs _XOPEN_SOURCE on Apple)
+#else
 #include <ucontext.h>
+#endif
 #include <unistd.h>
 
 #include <atomic>

@@ -68,7 +68,7 @@ jobs:
             -jobs 3 \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             2>&1 | grep -E "^[^ ].*(error|warning): |BUILD (SUCCEEDED|FAILED)|\*\* " | grep -v "^ " | cut -c1-300 || true
-          test -d "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakDX.app"
+          test -x "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakDX.app/DaybreakDX"
 
       - name: Package (encrypted)
         env:
