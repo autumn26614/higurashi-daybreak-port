@@ -74,9 +74,10 @@ jobs:
         env:
           IPA_PASSWORD: ${{ secrets.IPA_PASSWORD }}
         run: |
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakDX.app"
+          echo "password: ${#IPA_PASSWORD} characters; binary: $(file "$APP/DaybreakDX")"
           set -e
           test -n "$IPA_PASSWORD"
-          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakDX.app"
           file "$APP/DaybreakDX" | grep -q arm64
           # The translated game must be in it (without it the app only says the code is missing).
           n=$(nm -U "$APP/DaybreakDX" | grep -cE " _[FK]_00" || true)
