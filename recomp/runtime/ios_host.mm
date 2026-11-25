@@ -16,11 +16,12 @@
 namespace {
 struct StartArgs {
     std::string dir;
+    rt::Game game;
 };
 
 void *game_thread(void *p) {
     StartArgs *a = static_cast<StartArgs *>(p);
-    rt::game_load(a->dir);
+    rt::game_load(a->dir, a->game);
     int code = rt::game_run();
     rt::log("recomp: the game ended (%d)", code);
     delete a;
@@ -30,18 +31,20 @@ void *game_thread(void *p) {
 
 extern "C" {
 
-int recomp_has_game(void) { return rt::game_translated() ? 1 : 0; }
+static rt::Game game_of(int kai) { return kai ? rt::Game::kai : rt::Game::base; }
 
-int recomp_files_present(const char *dir) { return rt::game_files_present(dir) ? 1 : 0; }
+int recomp_has_game(int kai) { return rt::game_translated(game_of(kai)) ? 1 : 0; }
 
-void recomp_start(const char *dir, void *layer) {
+int recomp_files_present(const char *dir, int kai) { return rt::game_files_present(dir, game_of(kai)) ? 1 : 0; }
+
+void recomp_start(const char *dir, void *layer, int kai) {
     static bool started = false;
-    if (started || !rt::game_translated()) return;
+    if (started || !rt::game_translated(game_of(kai))) return;
     started = true;
     rt::d3d::set_renderer(rt::d3d::make_metal_renderer(layer));
     // Translated code recurses on the host stack as deeply as the game does on its own: a
     // big stack, smaller if the system will not give it.
-    auto *args = new StartArgs{dir};
+    auto *args = new StartArgs{dir, game_of(kai)};
     for (size_t mib : {64, 32, 16}) {
         pthread_attr_t attr;
         pthread_attr_init(&attr);

@@ -2,7 +2,7 @@
 # Builds the iOS app with your copy of the game (on a Mac):
 #   recomp/ios/build.sh "<folder with daybreak.exe and d3dx9_25.dll>"
 # Translates the two modules into recomp/gen (kept out of git: it is made from the game),
-# then generates the Xcode project. Open DaybreakRecomp.xcodeproj, set your signing team
+# then generates the Xcode project. Open DaybreakDX.xcodeproj, set your signing team
 # and run it on your device. Needs Python 3 with Capstone (pip3 install capstone) and
 # XcodeGen (brew install xcodegen).
 set -e
@@ -14,4 +14,4 @@ python3 tools/lift.py "$game/daybreak.exe" gen --prefix F
 python3 tools/lift.py "$game/d3dx9_25.dll" gen --prefix X --base 0x00A00000
 cd ios
 xcodegen generate
-echo "Now open $here/DaybreakRecomp.xcodeproj in Xcode."
+echo "Now open $here/DaybreakDX.xcodeproj in Xcode."

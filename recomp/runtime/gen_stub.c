@@ -13,4 +13,5 @@
     __attribute__((weak)) const char P##_source[] = "";
 
 STUB(F)
+STUB(K)
 STUB(X)

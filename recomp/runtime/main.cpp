@@ -1,5 +1,6 @@
 // Headless host for the recompiled daybreak.exe (with d3dx9_25.dll).
 //   daybreak-recomp <folder with daybreak.exe>
+#include <cstring>
 #include <cstdlib>
 #include <string>
 
@@ -75,7 +76,18 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: %s <folder with daybreak.exe>\n", argv[0]);
         return 2;
     }
-    rt::game_load(argv[1]);
+    // RECOMP_GAME=kai or base picks the game when the build holds both; otherwise the one
+    // translated whose files are in the folder.
+    const char *want = getenv("RECOMP_GAME");
+    rt::Game game = rt::Game::base;
+    if (want && !strcmp(want, "kai")) game = rt::Game::kai;
+    else if (!want && (!rt::game_translated(rt::Game::base) || !rt::game_files_present(argv[1], rt::Game::base)))
+        game = rt::Game::kai;
+    if (!rt::game_translated(game)) {
+        fprintf(stderr, "this build has no translated %s\n", rt::game_exe(game).c_str());
+        return 2;
+    }
+    rt::game_load(argv[1], game);
     if (getenv("RECOMP_PAD")) {  // a connected game controller (scripted keys 1000+ press its buttons)
         rt::input::Joystick j;
         j.connected = true;

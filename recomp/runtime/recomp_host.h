@@ -7,12 +7,13 @@
 extern "C" {
 #endif
 
-// 0 when the app was built without the translated game code.
-int recomp_has_game(void);
-// 1 if `dir` holds daybreak.exe, d3dx9_25.dll and daybreak00/01/02.dat.
-int recomp_files_present(const char *dir);
+// `kai`: 0 for the base game (daybreak.exe), 1 for Kai (DaybreakDX.exe).
+// 0 when the app was built without that game's translated code.
+int recomp_has_game(int kai);
+// 1 if `dir` holds the game: its exe, d3dx9_25.dll and daybreak00-02.dat (Kai: also 04-06).
+int recomp_files_present(const char *dir, int kai);
 // Starts the game on its own thread, drawing into `layer` (a CAMetalLayer*). Once only.
-void recomp_start(const char *dir, void *layer);
+void recomp_start(const char *dir, void *layer, int kai);
 // Keyboard input as DirectInput key codes (DIK_*).
 void recomp_key(uint32_t dik, int down);
 // A game controller (connect it before the game starts): sticks -1..1 (y down), buttons

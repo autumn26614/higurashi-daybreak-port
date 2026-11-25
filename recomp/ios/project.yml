@@ -1,7 +1,7 @@
-# The recompiled game as an iOS app. `xcodegen generate` here makes DaybreakRecomp.xcodeproj.
+# The recompiled game as an iOS app. `xcodegen generate` here makes DaybreakDX.xcodeproj.
 # The translated game code goes in ../gen (made from your daybreak.exe by build.sh); without
 # it the app still builds, and says the game code is missing.
-name: DaybreakRecomp
+name: DaybreakDX
 options:
   bundleIdPrefix: dev.autumn
   deploymentTarget:
@@ -10,7 +10,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
 targets:
-  DaybreakRecomp:
+  DaybreakDX:
     type: application
     platform: iOS
     sources:
@@ -28,7 +28,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: Higurashi Daybreak
+        CFBundleDisplayName: Daybreak DX
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
@@ -42,7 +42,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.autumn.daybreakdx
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # App/Assets.xcassets, drawn by tools/make_icon.py
+        # The game's own icon (daybreak.exe icon resource), as in port/ios.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -56,7 +57,7 @@ targets:
         OTHER_LDFLAGS: ["$(inherited)", "-liconv"]
 
 schemes:
-  DaybreakRecomp:
+  DaybreakDX:
     build:
       targets:
-        DaybreakRecomp: all
+        DaybreakDX: all

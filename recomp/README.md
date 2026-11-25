@@ -55,8 +55,9 @@ SKIP=1 tools/run_shots.sh 250 600 3000 "$(tools/battle_keys.sh)"   # title to a 
 Keep the game folder on a Linux file system: not WSL's `/mnt/c` (slow), and not `/tmp` (a RAM disk there). Needs Python 3 with
 Capstone 5 (`~/.local/daybreak-py` is searched).
 
-Kai (the expansion) is a separate executable: translate it with
-`make EXE=DaybreakDX.exe GAME=<Kai folder> GEN=... BUILD=...`. It needs `daybreak04.dat`
+Kai (the expansion) is a separate executable, translated with the prefix K next to the base
+game's F: `make GAME=<folder> KAI=<folder with DaybreakDX.exe> GEN=... BUILD=...` builds
+both, and `RECOMP_GAME=kai` runs Kai (the iOS app asks which). It needs `daybreak04.dat`
 to `daybreak06.dat` besides the base archives. Its movies go through a DirectShow renderer
 of its own that draws into a texture; the graph connects to it and hands it RGB24 samples.
 
@@ -108,11 +109,11 @@ sound through AVAudioEngine, glyphs from CoreText. On a Mac:
 ```sh
 pip3 install capstone && brew install xcodegen
 recomp/ios/build.sh "<folder with daybreak.exe and d3dx9_25.dll>"   # translates into recomp/gen
-open recomp/ios/DaybreakRecomp.xcodeproj                            # set a signing team, run
+open recomp/ios/DaybreakDX.xcodeproj                            # set a signing team, run
 ```
 
 Copy the game's data folder (daybreak.exe, d3dx9_25.dll, daybreak00–02.dat) into the app's
-Documents (Files › On My iPhone › Higurashi Daybreak). CI (`.github/workflows/recomp.yml`)
+Documents (Files › On My iPhone › Daybreak DX). CI (`.github/workflows/recomp.yml`)
 builds everything without game data: the runtime for macOS and the simulator, the
 generated Metal code with Apple's compiler, and the app (which then says the code is
 missing).
