@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <functional>
+#include <pthread.h>
 #include <initializer_list>
 #include <string>
 
@@ -66,6 +68,9 @@ uint32_t make_thunk(const std::string &name, int stack_bytes, ShimFn fn);
 uint32_t call_guest(CPU *c, uint32_t fn, std::initializer_list<uint32_t> args, uint32_t ecx = 0);
 
 // ---- threads ----
+// A host thread for guest code, with a big stack (translated code recurses on the host
+// stack as deeply as the game does on its own; iOS gives other threads only 512 KiB).
+pthread_t spawn_thread(std::function<void()> fn, bool detached);
 CPU *current();
 CPU *new_cpu(uint32_t stack_size);   // CPU with its own guest stack and TIB
 void free_cpu(CPU *c);

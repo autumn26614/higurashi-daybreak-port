@@ -209,7 +209,7 @@ SHIM(kernel32, CreateThread, 24) {
     std::mutex started;
     std::condition_variable cv;
     bool ready = false;
-    std::thread([t, start, param, &started, &cv, &ready] {
+    spawn_thread([t, start, param, &started, &cv, &ready] {
         CPU *tc = new_cpu(kThreadStack);
         {
             std::lock_guard<std::mutex> lock(started);
@@ -225,7 +225,7 @@ SHIM(kernel32, CreateThread, 24) {
         }
         t->cv.notify_all();
         free_cpu(tc);
-    }).detach();
+    }, true);
     std::unique_lock<std::mutex> lock(started);
     cv.wait(lock, [&] { return ready; });
     if (tid_out) st32(tid_out, t->tid);

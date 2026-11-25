@@ -199,7 +199,7 @@ SHIM(winmm, timeSetEvent, 20) {
     uint32_t delay = arg(c, 0), cb = arg(c, 2), user = arg(c, 3), flags = arg(c, 4);
     static std::atomic<uint32_t> next_id{1};
     uint32_t id = next_id++;
-    std::thread([=] {
+    spawn_thread([=] {
         CPU *tc = new_cpu(kThreadStack);
         auto next = std::chrono::steady_clock::now();
         do {
@@ -208,7 +208,7 @@ SHIM(winmm, timeSetEvent, 20) {
             call_guest(tc, cb, {id, 0, user, 0, 0});
         } while (flags & 1);  // TIME_PERIODIC
         free_cpu(tc);
-    }).detach();
+    }, true);
     return id;
 }
 

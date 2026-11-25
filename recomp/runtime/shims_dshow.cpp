@@ -37,7 +37,8 @@ struct Graph {
     CPU *cpu = nullptr;  // the player thread's guest CPU, for the reads
     std::vector<uint8_t> stream;
     plm_t *plm = nullptr;
-    std::thread player;
+    pthread_t player{};
+    bool has_player = false;
     std::atomic<bool> stop{false};
     std::atomic<int> state{0};  // 0 stopped, 1 paused, 2 running
     double position = 0;
@@ -59,7 +60,8 @@ struct Graph {
     }
     void halt() {
         stop = true;
-        if (player.joinable()) player.join();
+        if (has_player) pthread_join(player, nullptr);
+        has_player = false;
         stop = false;
     }
     void post(uint32_t code, uint32_t p1, uint32_t p2) {
@@ -187,14 +189,15 @@ void run_player(std::shared_ptr<Graph> g) {
 
 uint32_t start(CPU *, std::shared_ptr<Graph> g) {
     if (!g->reader && g->stream.empty()) return S_FALSE;
-    if (g->state == 2 && g->player.joinable()) return S_OK;
+    if (g->state == 2 && g->has_player) return S_OK;
     g->halt();
     g->state = 2;
     {
         std::lock_guard<std::mutex> lock(current_mutex);
         playing = g;
     }
-    g->player = std::thread(run_player, g);
+    g->player = spawn_thread([g] { run_player(g); }, false);
+    g->has_player = true;
     return S_OK;
 }
 
@@ -268,7 +271,7 @@ const Method control_vt[] = {
     {"Run", 1, [](CPU *c) { return start(c, graph(c)); }},
     {"Pause", 1, [](CPU *c) {
          auto g = graph(c);
-         if (!g->player.joinable()) start(c, g);
+         if (!g->has_player) start(c, g);
          g->state = 1;
          return S_OK;
      }},

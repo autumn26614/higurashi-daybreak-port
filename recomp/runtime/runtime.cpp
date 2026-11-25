@@ -293,6 +293,26 @@ thread_local uint32_t t_tid = 0;
 
 CPU *current() { return t_cpu; }
 
+pthread_t spawn_thread(std::function<void()> fn, bool detached) {
+    auto *f = new std::function<void()>(std::move(fn));
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, size_t(64) << 20);
+    if (detached) pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_t t;
+    int err = pthread_create(&t, &attr,
+                             [](void *p) -> void * {
+                                 auto *fn = static_cast<std::function<void()> *>(p);
+                                 (*fn)();
+                                 delete fn;
+                                 return nullptr;
+                             },
+                             f);
+    pthread_attr_destroy(&attr);
+    if (err) fatal("cannot start a thread (%d)", err);
+    return t;
+}
+
 uint32_t thread_id() {
     if (!t_tid) t_tid = next_tid.fetch_add(4);
     return t_tid;
