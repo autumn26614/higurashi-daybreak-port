@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -98,8 +99,35 @@ float gain_of(const SoundBuffer &b, float &left, float &right) {
 namespace rt {
 namespace audio {
 
+namespace {
+std::mutex stream_mutex;
+std::deque<float> stream;  // interleaved stereo at kRate
+}  // namespace
+
+void stream_push(const float *in, int frames, int rate, float gain) {
+    std::lock_guard<std::mutex> lock(stream_mutex);
+    double step = double(rate) / kRate;
+    int outn = int(frames / step);
+    for (int i = 0; i < outn; i++) {
+        int k = std::min(frames - 1, int(i * step));
+        stream.push_back(in[2 * k] * gain);
+        stream.push_back(in[2 * k + 1] * gain);
+    }
+}
+
+double stream_queued() {
+    std::lock_guard<std::mutex> lock(stream_mutex);
+    return double(stream.size() / 2) / kRate;
+}
+
 void mix(int16_t *out, int frames) {
     std::vector<float> acc(size_t(frames) * 2, 0.0f);
+    {
+        std::lock_guard<std::mutex> lock(stream_mutex);
+        size_t n = std::min(acc.size(), stream.size());
+        for (size_t i = 0; i < n; i++) acc[i] += stream[i];
+        stream.erase(stream.begin(), stream.begin() + long(n));
+    }
     {
         std::lock_guard<std::recursive_mutex> lock(mixer_mutex);
         for (size_t k = 0; k < playing.size();) {

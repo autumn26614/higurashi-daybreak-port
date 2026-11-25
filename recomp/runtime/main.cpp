@@ -3,7 +3,9 @@
 #include <cstdlib>
 #include <string>
 
+#include <chrono>
 #include <sstream>
+#include <thread>
 
 #include "audio.h"
 #include "d3d9.h"
@@ -24,7 +26,17 @@ public:
             unsigned long long f;
             unsigned k;
             char what[8] = {0};
-            if (sscanf(item.c_str(), "%llu:%x:%7s", &f, &k, what) == 3) events_.push_back({f, k, what[0] == 'd'});
+            double secs;
+            if (item[0] == 't' && sscanf(item.c_str() + 1, "%lf:%x:%7s", &secs, &k, what) == 3) {
+                // "t<seconds>:key:down|up": by wall-clock time (frames stop during movies)
+                bool down = what[0] == 'd';
+                std::thread([secs, k, down] {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(long(secs * 1000)));
+                    rt::input::set_key(k, down);
+                }).detach();
+            } else if (sscanf(item.c_str(), "%llu:%x:%7s", &f, &k, what) == 3) {
+                events_.push_back({f, k, what[0] == 'd'});
+            }
         }
     }
     void clear(rt::d3d::Device &d, uint32_t n, uint32_t r, uint32_t f, uint32_t c, float z, uint32_t s) override {

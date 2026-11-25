@@ -87,10 +87,16 @@ SHIM(kernel32, GetFullPathNameA, 16) {
     return uint32_t(p.size());
 }
 SHIM(kernel32, CompareStringA, 24) {
-    std::string a(gstr(arg(c, 2)), int32_t(arg(c, 3)) < 0 ? strlen(gstr(arg(c, 2))) : arg(c, 3));
-    std::string b(gstr(arg(c, 4)), int32_t(arg(c, 5)) < 0 ? strlen(gstr(arg(c, 4))) : arg(c, 5));
-    int r = (arg(c, 1) & 1) ? strcasecmp(a.c_str(), b.c_str()) : strcmp(a.c_str(), b.c_str());
-    return r < 0 ? 1 : r == 0 ? 2 : 3;
+    const unsigned char *a = reinterpret_cast<const unsigned char *>(gstr(arg(c, 2)));
+    const unsigned char *b = reinterpret_cast<const unsigned char *>(gstr(arg(c, 4)));
+    size_t na = int32_t(arg(c, 3)) < 0 ? strlen(reinterpret_cast<const char *>(a)) : arg(c, 3);
+    size_t nb = int32_t(arg(c, 5)) < 0 ? strlen(reinterpret_cast<const char *>(b)) : arg(c, 5);
+    bool fold = arg(c, 1) & 1;  // NORM_IGNORECASE
+    for (size_t i = 0; i < na && i < nb; i++) {
+        int x = fold ? tolower(a[i]) : a[i], y = fold ? tolower(b[i]) : b[i];
+        if (x != y) return x < y ? 1 : 3;
+    }
+    return na < nb ? 1 : na == nb ? 2 : 3;
 }
 SHIM(kernel32, WideCharToMultiByte, 32) {
     uint32_t src = arg(c, 2), dst = arg(c, 4), cap = arg(c, 5);

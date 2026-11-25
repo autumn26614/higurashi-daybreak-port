@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "d3d9.h"
+#include "movie.h"
 #include "shader.h"
 #include "soft.h"
 
@@ -330,6 +331,17 @@ public:
     void present(Device &d) override {
         if (!active(d)) return;
         Target t = target_of(d, d.backbuffer);
+        if (t.im && movie::current(movie_)) {  // the movie's window sits on top of the frame
+            const movie::Frame &m = movie_;
+            for (int y = 0; y < m.h; y++)
+                for (int x = 0; x < m.w; x++) {
+                    int dx = m.x + x, dy = m.y + y;
+                    if (dx < 0 || dy < 0 || dx >= int(t.im->width) || dy >= int(t.im->height)) continue;
+                    const uint8_t *p = &m.rgba[(size_t(y * m.height / m.h) * m.width + size_t(x * m.width / m.w)) * 4];
+                    st32(t.im->mem + uint32_t(dy) * t.im->pitch + 4 * uint32_t(dx),
+                         0xFF000000u | uint32_t(p[0]) << 16 | uint32_t(p[1]) << 8 | p[2]);
+                }
+        }
         if (t.im) {
             std::vector<uint8_t> rgba(size_t(t.im->width) * t.im->height * 4);
             for (uint32_t y = 0; y < t.im->height; y++)
@@ -391,7 +403,7 @@ private:
 
     Vec4 sample(uint32_t stage, float u, float v) {
         const Decoded *t = texture(stage);
-        if (!t || !t->w) return {1, 1, 1, 1};
+        if (!t || !t->w) return {0, 0, 0, 1};
         const auto &s = dev_->st.samp[stage];
         auto addr = [](float c, uint32_t mode, uint32_t n, int &i) {
             float x = c * float(n) - 0.5f;
@@ -857,7 +869,7 @@ private:
         for (uint32_t s = 0; s < 8; s++) {
             const auto &t = d.st.tss[s];
             if (t[1] == 1) break;  // COLOROP DISABLE ends the cascade
-            Vec4 tex{1, 1, 1, 1};
+            Vec4 tex{0, 0, 0, 1};  // an empty stage reads as opaque black
             if (d.st.textures[s]) {
                 const Vec4 &tc = in.tex[s];
                 tex = sample(s, tc[0], tc[1]);
@@ -919,6 +931,7 @@ private:
     }
 
     SoftOptions opt_;
+    movie::Frame movie_;
     Device *dev_ = nullptr;
     std::vector<Vtx> verts_;
     int64_t base_ = 0;

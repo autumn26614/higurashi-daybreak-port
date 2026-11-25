@@ -2,7 +2,13 @@
 #include "runtime.h"
 #include "host.h"
 
+#include <execinfo.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/mman.h>
+#include <unistd.h>
+
+#include <thread>
 
 #include <algorithm>
 #include <atomic>
@@ -127,10 +133,13 @@ struct Thunk {
     int stack_bytes;  // kCdecl, or bytes popped; -2 = not implemented
     ShimFn fn;
 };
-std::vector<Thunk> &thunks() {
-    static std::vector<Thunk> t;
+// A fixed table, so calls can read it without a lock while thunks are being added.
+constexpr uint32_t kMaxThunks = 1 << 16;
+Thunk *thunks() {
+    static Thunk *t = new Thunk[kMaxThunks];
     return t;
 }
+std::atomic<uint32_t> thunk_count{0};
 std::mutex thunk_mutex;
 
 std::string lower(std::string s) {
@@ -162,20 +171,19 @@ DataReg::DataReg(const char *dll, const char *name, uint32_t (*make)()) {
 
 uint32_t make_thunk(const std::string &name, int stack_bytes, ShimFn fn) {
     std::lock_guard<std::mutex> lock(thunk_mutex);
-    thunks().push_back({name, stack_bytes, fn});
-    return kThunkBase + 4 * uint32_t(thunks().size() - 1);
+    uint32_t i = thunk_count.load();
+    if (i >= kMaxThunks) fatal("too many thunks");
+    thunks()[i] = {name, stack_bytes, fn};
+    thunk_count.store(i + 1);
+    return kThunkBase + 4 * i;
 }
 
 static void call_thunk(CPU *c, uint32_t t) {
     uint32_t i = (t - kThunkBase) / 4;
-    Thunk k;
-    {
-        std::lock_guard<std::mutex> lock(thunk_mutex);
-        if (i >= thunks().size()) fatal("bad thunk address %08x", t);
-        k = thunks()[i];
-    }
+    if (i >= thunk_count.load(std::memory_order_acquire)) fatal("bad thunk address %08x", t);
+    const Thunk &k = thunks()[i];
     if (!k.fn) fatal("call to unimplemented import %s (return address %08x)", k.name.c_str(), ld32(c->r[4]));
-    if (trace_imports) log("[%u] %s", thread_id(), k.name.c_str());
+    if (trace_imports) log("[%u] %s <- %08x", thread_id(), k.name.c_str(), ld32(c->r[4]));
     uint32_t r = k.fn(c);
     c->r[0] = r;
     c->r[4] += 4 + (k.stack_bytes > 0 ? uint32_t(k.stack_bytes) : 0);
@@ -282,7 +290,43 @@ uint32_t thread_id() {
     return t_tid;
 }
 
+// RECOMP_SAMPLE=<seconds>: every guest thread prints its host backtrace that often (the
+// translated functions appear by name, F_xxxxxxxx / X_xxxxxxxx).
+namespace {
+std::mutex sample_mutex;
+std::vector<pthread_t> sample_threads;
+void sample_handler(int) {
+    void *frames[24];
+    int n = backtrace(frames, 24);
+    char head[64];
+    int len = snprintf(head, sizeof head, "--- thread %u\n", thread_id());
+    if (write(2, head, size_t(len)) < 0) return;
+    backtrace_symbols_fd(frames, n, 2);
+}
+void register_sampling() {
+    static const char *every = getenv("RECOMP_SAMPLE");
+    if (!every) return;
+    std::lock_guard<std::mutex> lock(sample_mutex);
+    sample_threads.push_back(pthread_self());
+    static bool started = false;
+    if (started) return;
+    started = true;
+    signal(SIGUSR1, sample_handler);
+    std::thread([] {
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(int(atof(every) * 1000)));
+            std::lock_guard<std::mutex> lock(sample_mutex);
+            for (pthread_t t : sample_threads) {
+                pthread_kill(t, SIGUSR1);
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+        }
+    }).detach();
+}
+}  // namespace
+
 CPU *new_cpu(uint32_t stack_size) {
+    register_sampling();
     CPU *c = new CPU();
     uint32_t stack = galloc(stack_size);
     uint32_t tib = galloc(0x1000, true);
@@ -319,6 +363,8 @@ void load_module(const std::string &path, Module &m) {
     uint32_t headers = u32(opt + 60);
     uint32_t reloc_rva = u32(opt + 96 + 5 * 8), reloc_size = u32(opt + 96 + 5 * 8 + 4);
     uint32_t base = m.base;
+    if (uint64_t(base) + image_size > kHeapBase && base < kHeapEnd)
+        fatal("%s at %08x overlaps the guest heap (%08x-%08x)", path.c_str(), base, kHeapBase, kHeapEnd);
     memset(GM + base, 0, image_size);
     memcpy(GM + base, d.data(), std::min<size_t>(headers, d.size()));
     for (uint32_t i = 0; i < nsec; i++) {
@@ -376,7 +422,35 @@ uint32_t resolve_import(const std::string &dll, const std::string &name) {
     return t;
 }
 
+// RECOMP_PROTECT=<hex guest address>: make that page read-only once loading is done and
+// print who writes to it (debugging stray writes).
+static void protect_handler(int, siginfo_t *si, void *) {
+    char msg[96];
+    int n = snprintf(msg, sizeof msg, "--- write to protected guest %08x (thread %u)\n",
+                     uint32_t(static_cast<uint8_t *>(si->si_addr) - GM), thread_id());
+    if (write(2, msg, size_t(n)) < 0) _exit(3);
+    void *frames[32];
+    int k = backtrace(frames, 32);
+    backtrace_symbols_fd(frames, k, 2);
+    _exit(3);
+}
+
+static void apply_protection() {
+    const char *p = getenv("RECOMP_PROTECT");
+    if (!p) return;
+    uint32_t a = uint32_t(strtoul(p, nullptr, 16)) & ~0xFFFu;
+    struct sigaction sa{};
+    sa.sa_sigaction = protect_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, nullptr);
+    mprotect(GM + a, 0x1000, PROT_READ);
+    log("recomp: guest page %08x is read-only", a);
+}
+
 void bind_imports() {
+    struct AtEnd {
+        ~AtEnd() { apply_protection(); }
+    } at_end;
     for (Module *m : modules()) {
         int missing = 0;
         for (uint32_t i = 0; i < m->import_count; i++) {

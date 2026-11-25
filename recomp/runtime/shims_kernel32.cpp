@@ -79,13 +79,42 @@ struct File : KObject {
     }
 };
 
-// Critical sections are guest structs; each gets a host recursive mutex.
+// Critical sections are guest structs; each gets a host lock. It is recursive and hands
+// over in arrival order: the game's render thread leaves and re-enters its lock every
+// frame, and an unfair lock would starve the loading thread waiting for it.
+struct Section {
+    std::mutex m;
+    std::condition_variable cv;
+    std::thread::id owner;
+    uint32_t depth = 0;
+    uint64_t next_ticket = 0, serving = 0;
+    void lock() {
+        std::unique_lock<std::mutex> l(m);
+        auto me = std::this_thread::get_id();
+        if (depth && owner == me) {
+            depth++;
+            return;
+        }
+        uint64_t t = next_ticket++;
+        cv.wait(l, [&] { return serving == t && depth == 0; });
+        owner = me;
+        depth = 1;
+    }
+    void unlock() {
+        std::lock_guard<std::mutex> l(m);
+        if (!depth || owner != std::this_thread::get_id()) return;
+        if (--depth == 0) {
+            serving++;
+            cv.notify_all();
+        }
+    }
+};
 std::mutex cs_mutex;
-std::map<uint32_t, std::recursive_mutex *> sections;
-std::recursive_mutex *section(uint32_t a) {
+std::map<uint32_t, Section *> sections;
+Section *section(uint32_t a) {
     std::lock_guard<std::mutex> lock(cs_mutex);
     auto &m = sections[a];
-    if (!m) m = new std::recursive_mutex();
+    if (!m) m = new Section();
     return m;
 }
 
@@ -99,9 +128,14 @@ uint32_t wait_one(uint32_t h, uint32_t ms) {
 }
 }  // namespace
 
-void rt_set_event(uint32_t h) {  // for the DirectSound notifications
+// Events for the other shims (DirectSound notifications, DirectShow).
+void rt_set_event(uint32_t h) {
     if (auto e = handle_as<Event>(h)) e->set(true);
 }
+void rt_reset_event(uint32_t h) {
+    if (auto e = handle_as<Event>(h)) e->set(false);
+}
+uint32_t rt_create_event(bool manual, bool initial) { return handle_new(std::make_shared<Event>(manual, initial)); }
 
 // ---- synchronisation ----
 SHIM(kernel32, InitializeCriticalSection, 4) {

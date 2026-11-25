@@ -440,9 +440,33 @@ static void default_state(State &s) {
     s.material[0] = s.material[1] = s.material[2] = s.material[3] = fbits(1.0f);  // diffuse white
 }
 
+// RECOMP_DRAWLOG=<frame>: describe every draw of that frame.
+static void log_draw(Device &d, const Draw &dr) {
+    static long long want = getenv("RECOMP_DRAWLOG") ? atoll(getenv("RECOMP_DRAWLOG")) : -1;
+    if (want < 0 || (long long)d.frames != want) return;
+    const State &s = d.st;
+    std::string v;
+    if (dr.up_vertices) {
+        char b[160];
+        snprintf(b, sizeof b, " v0=[%.1f %.1f %.3f %.3f c=%08x] stride %u", f32(ld32(dr.up_vertices)),
+                 f32(ld32(dr.up_vertices + 4)), f32(ld32(dr.up_vertices + 8)), f32(ld32(dr.up_vertices + 12)),
+                 ld32(dr.up_vertices + 16), dr.up_stride);
+        v = b;
+    }
+    uint32_t tex = s.textures[0];
+    auto t = com_as<Texture>(tex);
+    log("draw prim %u x%u%s fvf %x decl %x vs %x ps %x tex0 %ux%u fmt %u | blend %u %u/%u op %u atest %u ref %u "
+        "func %u z %u/%u | cop %u(%x,%x) aop %u(%x,%x) cop1 %u tf %08x light %u%s",
+        dr.prim, dr.count, dr.indexed ? " indexed" : "", s.fvf, s.decl, s.vs, s.ps, t ? t->levels[0].width : 0,
+        t ? t->levels[0].height : 0, t ? t->levels[0].format : 0, s.rs[27], s.rs[19], s.rs[20], s.rs[171], s.rs[15],
+        s.rs[24], s.rs[25], s.rs[7], s.rs[14], s.tss[0][1], s.tss[0][2], s.tss[0][3], s.tss[0][4], s.tss[0][5],
+        s.tss[0][6], s.tss[1][1], s.rs[60], s.rs[137], v.c_str());
+}
+
 static uint32_t draw(CPU *c, const Draw &dr) {
     auto d = dev(c);
     d->draws++;
+    log_draw(*d, dr);
     renderer().draw(*d, dr);
     return D3D_OK;
 }

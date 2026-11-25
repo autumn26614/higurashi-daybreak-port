@@ -7,8 +7,9 @@ BUILD ?= build
 PYTHON ?= python3 -I
 CC ?= gcc
 CXX ?= g++
-OPT ?= -O1
-CFLAGS += $(OPT) -g -w -Iruntime -I$(GEN)
+OPT ?= -O2
+GENOPT ?= -O2
+CFLAGS += $(GENOPT) -g -w -Iruntime -I$(GEN)
 CXXFLAGS += $(OPT) -g -std=c++17 -Wall -Wextra -Wno-unused-parameter -Iruntime
 
 RUNTIME := $(wildcard runtime/*.cpp)
@@ -17,10 +18,10 @@ RT_OBJ := $(RUNTIME:runtime/%.cpp=$(BUILD)/rt/%.o)
 all: $(GEN)/stamp
 	$(MAKE) link
 
-# The exe at its own base; d3dx9_25.dll (which prefers the same base) moved to 0x10000000.
+# The exe at its own base; d3dx9_25.dll (which prefers the same base) moved to 0x00680000 (between the exe and the heap).
 $(GEN)/stamp: tools/lift.py tools/discover.py tools/pe.py
 	$(PYTHON) tools/lift.py "$(GAME)/daybreak.exe" $(GEN) --prefix F
-	$(PYTHON) tools/lift.py "$(GAME)/d3dx9_25.dll" $(GEN) --prefix X --base 0x10000000
+	$(PYTHON) tools/lift.py "$(GAME)/d3dx9_25.dll" $(GEN) --prefix X --base 0x00680000
 	touch $@
 
 GEN_C = $(wildcard $(GEN)/F_*.c $(GEN)/X_*.c)
@@ -36,7 +37,7 @@ $(BUILD)/rt/%.o: runtime/%.cpp $(wildcard runtime/*.h)
 
 
 link: $(GEN_OBJ) $(RT_OBJ)
-	$(CXX) $(GEN_OBJ) $(RT_OBJ) -o $(BUILD)/daybreak-recomp -lpthread -lm
+	$(CXX) $(GEN_OBJ) $(RT_OBJ) -o $(BUILD)/daybreak-recomp -rdynamic -lpthread -lm
 
 run: all
 	$(BUILD)/daybreak-recomp "$(GAME)"
