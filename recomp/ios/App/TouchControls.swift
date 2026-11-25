@@ -240,13 +240,19 @@ struct TouchControls: View {
     @AppStorage("controls.opacity") private var opacity = 0.85
     @AppStorage("controls.haptics") private var haptics = true
     @StateObject private var state = ControlState()
+    /// The screen's safe area (notch, Dynamic Island, home indicator).
+    static var windowInsets: UIEdgeInsets {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.flatMap { $0.windows }.first { $0.isKeyWindow }?.safeAreaInsets
+            ?? scenes.first?.windows.first?.safeAreaInsets ?? .zero
+    }
+
     /// Shows a few buttons held and the stick pushed (screenshots of the controls).
     var demo = false
 
     var body: some View {
         GeometryReader { g in
-            let safe = UIEdgeInsets(top: g.safeAreaInsets.top, left: g.safeAreaInsets.leading,
-                                    bottom: g.safeAreaInsets.bottom, right: g.safeAreaInsets.trailing)
+            let safe = TouchControls.windowInsets  // (this view ignores the safe area, so its own insets read 0)
             let layout = ControlLayout(size: g.size, safe: safe, scale: CGFloat(size))
             ZStack(alignment: .topLeading) {
                 StickView(layout: layout, state: state)
