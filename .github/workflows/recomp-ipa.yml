@@ -8,8 +8,10 @@
 #   whose password is the IPA_PASSWORD secret.
 #
 # Secrets (repository settings, or `gh secret set`):
-#   GAME_REPO_KEY  private half of a read-only deploy key of higurashi-daybreak-private
-#   IPA_PASSWORD   the archive password
+#   GAME_REPO_TOKEN  a fine-grained access token with read-only Contents access to
+#                    higurashi-daybreak-private only (can be made on a phone, in the browser);
+#   or GAME_REPO_KEY the private half of a read-only deploy key of that repository
+#   IPA_PASSWORD     the archive password
 # Run: gh workflow run recomp-ipa.yml
 name: Recompiled game .ipa (encrypted)
 
@@ -31,6 +33,7 @@ jobs:
         with:
           repository: autumn26614/higurashi-daybreak-private
           ssh-key: ${{ secrets.GAME_REPO_KEY }}
+          token: ${{ secrets.GAME_REPO_TOKEN || github.token }}
           path: private
 
       - name: Tools
