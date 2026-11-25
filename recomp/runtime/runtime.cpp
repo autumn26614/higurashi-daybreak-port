@@ -26,6 +26,7 @@ uint8_t *GM = nullptr;
 namespace rt {
 
 bool trace_imports = getenv("RECOMP_TRACE") != nullptr;
+uint32_t heap_end = kHeapEnd;
 
 void log(const char *fmt, ...) {
     va_list ap;
@@ -58,16 +59,27 @@ void memory_init() {
     if (GM) return;
 #if defined(__APPLE__)
     // iOS limits a process's address space: reserve what the guest uses (modules, heap and
-    // stacks end below kHeapEnd; thunk addresses above it are never read as memory).
-    const size_t size = size_t(1) << 31;
+    // stacks end below the heap's end; thunk addresses above it are never read as memory),
+    // trying smaller sizes if the system refuses, and shrink the heap to fit.
+    const size_t sizes[] = {size_t(1) << 31, size_t(3) << 29, size_t(1) << 30, size_t(3) << 28};
     const int flags = MAP_PRIVATE | MAP_ANONYMOUS;
 #else
-    const size_t size = size_t(1) << 32;
+    const size_t sizes[] = {size_t(1) << 32};
     const int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
 #endif
-    void *p = mmap(nullptr, size, PROT_READ | PROT_WRITE, flags, -1, 0);
+    void *p = MAP_FAILED;
+    size_t size = 0;
+    for (size_t s : sizes) {
+        p = mmap(nullptr, s, PROT_READ | PROT_WRITE, flags, -1, 0);
+        if (p != MAP_FAILED) {
+            size = s;
+            break;
+        }
+    }
     if (p == MAP_FAILED) fatal("cannot reserve the guest address space");
     GM = static_cast<uint8_t *>(p);
+    heap_end = uint32_t(std::min<uint64_t>(kHeapEnd, uint64_t(size) - (16u << 20)));
+    if (size < (size_t(1) << 31)) log("recomp: guest memory %zu MiB", size >> 20);
 }
 
 // Heap: size classes (16-byte steps to 1 KiB, then powers of two), bump allocation, free
@@ -96,7 +108,7 @@ uint32_t galloc(uint32_t size, bool zero) {
             fl.pop_back();
         } else {
             a = heap_top + 16;  // header in the 16 bytes before, keeps 16-byte alignment
-            if (uint64_t(a) + cs > kHeapEnd) fatal("guest heap exhausted (%u bytes)", size);
+            if (uint64_t(a) + cs > heap_end) fatal("guest heap exhausted (%u bytes)", size);
             heap_top = a + cs;
             st32(a - 8, cs);
         }
@@ -107,12 +119,17 @@ uint32_t galloc(uint32_t size, bool zero) {
 
 void gfree(uint32_t a) {
     if (!a) return;
-    if (a < kHeapBase || a >= kHeapEnd) return;  // not ours (static data, stack)
+    if (a < kHeapBase || a >= heap_end) return;  // not ours (static data, stack)
     std::lock_guard<std::mutex> lock(heap_mutex);
     free_lists[ld32(a - 8)].push_back(a);
 }
 
 uint32_t gsize(uint32_t a) { return a ? ld32(a - 8) : 0; }
+
+uint32_t heap_used() {
+    std::lock_guard<std::mutex> lock(heap_mutex);
+    return heap_top - kHeapBase;
+}
 
 uint32_t grealloc(uint32_t a, uint32_t size) {
     if (!a) return galloc(size);

@@ -20,7 +20,9 @@ constexpr uint32_t kHeapEnd = 0x78000000;
 constexpr uint32_t kMainStack = 8u << 20;
 constexpr uint32_t kThreadStack = 1u << 20;
 
+extern uint32_t heap_end;  // kHeapEnd, or less where the system gives less address space
 void memory_init();
+uint32_t heap_used();      // high-water mark of the guest heap
 uint32_t galloc(uint32_t size, bool zero = false);  // guest heap (16-byte aligned)
 void gfree(uint32_t a);
 uint32_t grealloc(uint32_t a, uint32_t size);
