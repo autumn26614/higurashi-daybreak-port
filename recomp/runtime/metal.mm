@@ -273,9 +273,10 @@ public:
         id<MTLFunction> ffn = ps ? shader_fn(*ps) : [lib_ newFunctionWithName:@"ff_fragment"];
         if (!vfn || !ffn) return;
         bool pretransformed = false;
-        bool has_spec = false;
+        bool has_diffuse = false, has_spec = false;
         for (auto &e : el) {
             if (e.usage == 9) pretransformed = !vs;
+            if (e.usage == 10 && e.index == 0) has_diffuse = true;
             if (e.usage == 10 && e.index == 1) has_spec = true;
         }
 
@@ -382,7 +383,7 @@ public:
             [enc_ setVertexBytes:c.data() length:256 * 16 atIndex:17];
         } else {
             FFBlockC fb{};
-            ff_block(d, fb, has_spec);
+            ff_block(d, fb, has_diffuse, has_spec);
             [enc_ setVertexBytes:&fb length:sizeof fb atIndex:17];
         }
         if (ps) [enc_ setFragmentBytes:st.ps_const.data() length:32 * 16 atIndex:0];
@@ -921,7 +922,7 @@ private:
         }
     }
 
-    void ff_block(Device &d, FFBlockC &f, bool has_spec) {
+    void ff_block(Device &d, FFBlockC &f, bool has_diffuse, bool has_spec) {
         const State &st = d.st;
         for (int i = 0; i < 4; i++) memcpy(f.world[i], st.transforms[256 + i].m, 64);
         memcpy(f.view, st.transforms[2].m, 64);
@@ -939,10 +940,13 @@ private:
         uint32_t vb = st.rs[151];
         f.flags[2] = vb >= 1 && vb <= 3 ? vb : 0;
         f.flags[3] = st.rs[143] != 0;
-        f.sources[0] = st.rs[145];
-        f.sources[1] = st.rs[146];
-        f.sources[2] = st.rs[147];
-        f.sources[3] = st.rs[148];
+        // A material source naming a vertex colour the vertices lack falls back to the
+        // material (Direct3D's rule).
+        auto source = [&](uint32_t s) { return (s == 1 && !has_diffuse) || (s == 2 && !has_spec) ? 0u : s; };
+        f.sources[0] = source(st.rs[145]);
+        f.sources[1] = source(st.rs[146]);
+        f.sources[2] = source(st.rs[147]);
+        f.sources[3] = source(st.rs[148]);
         f.fogv[0] = st.rs[28] && !st.rs[35] ? st.rs[140] : 0;
         f.fogv[1] = has_spec;
         uint32_t n = 0;

@@ -7,6 +7,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <cmath>
+#include <unistd.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -281,5 +282,6 @@ int main(int argc, char **argv) {
     d3d::save_png(out + "/diff.png", w, h, diff);
     double pct = 100.0 * double(bad) / double(a.size());
     printf("%zu of %zu pixels differ (%.2f%%)\n", bad, a.size(), pct);
-    return pct <= 1.5 ? 0 : 1;
+    fflush(stdout);
+    _exit(pct <= 1.5 ? 0 : 1);  // skip static destructors (threads may still hold locks)
 }

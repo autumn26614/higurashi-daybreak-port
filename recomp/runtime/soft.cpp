@@ -662,6 +662,17 @@ private:
         }
         if (x0 > x1 || y0 > y1) return;
         float inv_area = 1.0f / area;
+        // Edge k is opposite vertex k. With y down, an edge is "top" if horizontal with the
+        // triangle below it, "left" if the triangle is to its right.
+        auto owns = [&](const Screen &p, const Screen &q) {
+            float dx = q.x - p.x, dy = q.y - p.y;
+            if (area < 0) {
+                dx = -dx;
+                dy = -dy;
+            }
+            return (dy == 0 && dx > 0) || dy < 0;
+        };
+        bool owns0 = owns(B, C), owns1 = owns(C, A), owns2 = owns(A, B);
         auto ps_shader = d.st.ps ? com_as<Shader>(d.st.ps) : nullptr;
         const shader::Program *ps = ps_shader ? &program(*ps_shader) : nullptr;
         for (int y = y0; y <= y1; y++) {
@@ -670,7 +681,10 @@ private:
                 float w0 = ((B.x - px) * (C.y - py) - (C.x - px) * (B.y - py)) * inv_area;
                 float w1 = ((C.x - px) * (A.y - py) - (A.x - px) * (C.y - py)) * inv_area;
                 float w2 = 1 - w0 - w1;
+                // Top-left rule: a pixel on an edge belongs to one triangle only (edges
+                // shared by two triangles would otherwise be drawn twice).
                 if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+                if ((w0 == 0 && !owns0) || (w1 == 0 && !owns1) || (w2 == 0 && !owns2)) continue;
                 float z = w0 * A.z + w1 * B.z + w2 * C.z;
                 size_t pi = size_t(y) * size_t(w) + size_t(x);
                 if (t.depth && d.st.rs[7]) {
