@@ -1,0 +1,61 @@
+# The recompiled game as an iOS app. `xcodegen generate` here makes DaybreakRecomp.xcodeproj.
+# The translated game code goes in ../gen (made from your daybreak.exe by build.sh); without
+# it the app still builds, and says the game code is missing.
+name: DaybreakRecomp
+options:
+  bundleIdPrefix: io.github.autumn26614
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+targets:
+  DaybreakRecomp:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+      - path: ../runtime
+        excludes:
+          - main.cpp        # the headless host
+          - soft.cpp        # software renderer (headless checks)
+          - soft.h
+          - font_stb.cpp    # non-Apple glyphs
+      - path: ../gen
+        optional: true
+        excludes:
+          - stamp
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Higurashi Daybreak
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        # The game folder is copied into the app's Documents (Files: On My iPhone).
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.daybreak.recomp
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_OBJC_BRIDGING_HEADER: App/Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/../runtime
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+        CLANG_ENABLE_OBJC_ARC: YES
+        # The translated code is huge; build it optimised in every configuration.
+        GCC_OPTIMIZATION_LEVEL: "2"
+        OTHER_CFLAGS: ["$(inherited)", "-w"]
+        OTHER_LDFLAGS: ["$(inherited)", "-liconv"]
+
+schemes:
+  DaybreakRecomp:
+    build:
+      targets:
+        DaybreakRecomp: all

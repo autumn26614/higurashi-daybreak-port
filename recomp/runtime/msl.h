@@ -4,8 +4,8 @@
 //
 // Every vertex function writes `VOut` and every fragment function reads it, so any vertex
 // function (a translated shader or the fixed-function one) pairs with any fragment one.
-// Buffers: 0..15 vertex streams, 29 the defaults for missing inputs, 30 the vertex shader
-// constants (or the fixed-function block), 31 the per-draw block. Fragment: textures and
+// Buffers: 0..15 vertex streams, 16 the defaults for missing inputs, 17 the vertex shader
+// constants (or the fixed-function block), 18 the per-draw block. Fragment: textures and
 // samplers 0..7, buffer 0 the pixel shader constants, buffer 1 the per-draw block.
 #pragma once
 

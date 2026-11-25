@@ -296,12 +296,12 @@ public:
                             attr[a] = {s, uint32_t(16 * k)};
                             found = true;
                         }
-                if (!found) attr[a] = {29, in[1] == 10 ? (in[2] == 0 ? 16u : 32u) : 0u};
+                if (!found) attr[a] = {16, in[1] == 10 ? (in[2] == 0 ? 16u : 32u) : 0u};
             }
-            if (p.inputs.empty()) attr[0] = {29, 0};
+            if (p.inputs.empty()) attr[0] = {16, 0};
         } else {
             for (int slot = 0; slot < msl::FF_SLOTS; slot++)
-                attr[slot] = {29, slot == msl::FF_COLOR0 ? 16u : slot == msl::FF_COLOR1 ? 32u : 0u};
+                attr[slot] = {16, slot == msl::FF_COLOR0 ? 16u : slot == msl::FF_COLOR1 ? 32u : 0u};
             for (auto &[s, list] : streams)
                 for (size_t k = 0; k < list.size(); k++) {
                     int slot = ff_slot(list[k]->usage, list[k]->index);
@@ -318,9 +318,9 @@ public:
             vd.layouts[s].stride = 16 * list.size();
             vd.layouts[s].stepFunction = MTLVertexStepFunctionPerVertex;
         }
-        vd.layouts[29].stride = 16;
-        vd.layouts[29].stepFunction = MTLVertexStepFunctionConstant;
-        vd.layouts[29].stepRate = 0;
+        vd.layouts[16].stride = 16;
+        vd.layouts[16].stepFunction = MTLVertexStepFunctionConstant;
+        vd.layouts[16].stepRate = 0;
 
         id<MTLRenderPipelineState> pso = pipeline(d, vfn, ffn, vd, sig, t);
         if (!pso) return;
@@ -370,20 +370,20 @@ public:
                 nverts = std::max(nverts, cb.count);
             }
         }
-        [enc_ setVertexBuffer:defaults_ offset:0 atIndex:29];
+        [enc_ setVertexBuffer:defaults_ offset:0 atIndex:16];
 
         // Uniforms.
         DrawBlockC db{};
         draw_block(d, db, pretransformed, vs != nullptr);
-        [enc_ setVertexBytes:&db length:sizeof db atIndex:31];
+        [enc_ setVertexBytes:&db length:sizeof db atIndex:18];
         [enc_ setFragmentBytes:&db length:sizeof db atIndex:1];
         if (vs) {
             std::vector<float> c(st.vs_const.begin(), st.vs_const.end());
-            [enc_ setVertexBytes:c.data() length:256 * 16 atIndex:30];
+            [enc_ setVertexBytes:c.data() length:256 * 16 atIndex:17];
         } else {
             FFBlockC fb{};
             ff_block(d, fb, has_spec);
-            [enc_ setVertexBytes:&fb length:sizeof fb atIndex:30];
+            [enc_ setVertexBytes:&fb length:sizeof fb atIndex:17];
         }
         if (ps) [enc_ setFragmentBytes:st.ps_const.data() length:32 * 16 atIndex:0];
         for (uint32_t s = 0; s < 8; s++) {

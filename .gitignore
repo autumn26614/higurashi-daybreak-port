@@ -23,6 +23,8 @@
 /recomp/build/
 /port/ios/*.xcodeproj/
 /port/ios/Daybreak/Info.plist
+/recomp/ios/*.xcodeproj/
+/recomp/ios/App/Info.plist
 DerivedData/
 *.xcresult
 __pycache__/

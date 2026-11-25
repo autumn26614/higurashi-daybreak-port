@@ -54,3 +54,20 @@ jobs:
             echo "== $f"
             xcrun -sdk iphonesimulator metal -std=ios-metal2.4 -c "$f" -o "/tmp/msl/$(basename "$f" .metal).air"
           done
+
+  ios-app:
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: App builds without the game code (iOS simulator)
+        working-directory: recomp/ios
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild build -project DaybreakRecomp.xcodeproj -scheme DaybreakRecomp \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO | tail -40

@@ -24,7 +24,7 @@ struct VOut {
     float psize [[point_size]];
 };
 
-// Per draw (vertex buffer 31, fragment buffer 1). All members are 16-byte vectors so the
+// Per draw (vertex buffer 18, fragment buffer 1). All members are 16-byte vectors so the
 // C++ mirror (metal.mm) has the same layout.
 struct DrawBlock {
     float4 viewport;      // x, y, width, height in pixels
@@ -46,7 +46,7 @@ struct Light {
     float4 att2;          // att2, theta, phi, enabled
 };
 
-// Fixed-function vertex state (vertex buffer 30 when there is no vertex shader).
+// Fixed-function vertex state (vertex buffer 17 when there is no vertex shader).
 struct FFBlock {
     float4x4 world[4];    // D3D row-major, used as m * v
     float4x4 view;
@@ -152,7 +152,7 @@ inline float4 ff_source(uint s, float4 mat, float4 c0, float4 c1, bool colourver
     return mat;
 }
 
-vertex VOut ff_vertex(FFIn in [[stage_in]], constant FFBlock &f [[buffer(30)]], constant DrawBlock &d [[buffer(31)]]) {
+vertex VOut ff_vertex(FFIn in [[stage_in]], constant FFBlock &f [[buffer(17)]], constant DrawBlock &d [[buffer(18)]]) {
     VOut o;
     o.c0 = in.c0;
     o.c1 = in.c1;
@@ -475,8 +475,8 @@ std::string vertex(const Program &p, const std::string &name, std::string *err) 
     for (auto &i : p.inputs) o << "    float4 v" << i[0] << " [[attribute(" << i[0] << ")]];\n";
     if (p.inputs.empty()) o << "    float4 v0 [[attribute(0)]];\n";
     o << "};\n";
-    o << "vertex VOut " << name << "(" << name << "_in in [[stage_in]], constant float4 *c [[buffer(30)]], "
-      << "constant DrawBlock &d [[buffer(31)]]) {\n";
+    o << "vertex VOut " << name << "(" << name << "_in in [[stage_in]], constant float4 *c [[buffer(17)]], "
+      << "constant DrawBlock &d [[buffer(18)]]) {\n";
     o << "    VOut o;\n    o.pos = float4(0.0, 0.0, 0.0, 1.0);\n    o.c0 = float4(1.0);\n    o.c1 = float4(0.0);\n";
     o << "    o.t0 = o.t1 = o.t2 = o.t3 = o.t4 = o.t5 = o.t6 = o.t7 = float4(0.0, 0.0, 0.0, 1.0);\n";
     o << "    o.fog = 1.0;\n    o.psize = 1.0;\n    int a0 = 0;\n";
