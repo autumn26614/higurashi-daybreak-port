@@ -157,3 +157,9 @@ CASE(c_volatile) {
     sink += b;
     return sink * 2;
 }
+CASE(c_xlat) {  /* a table lookup no compiler writes, but hand-written code (Kai's) does */
+    for (int i = 0; i < 256; i++) buf[i] = (char)(i * 7 + b);
+    uint32_t r = a;
+    __asm__ volatile("xlatb" : "+a"(r) : "b"(buf) : "memory");
+    return r;
+}

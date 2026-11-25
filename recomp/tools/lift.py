@@ -291,6 +291,11 @@ class Lifter:
             return [self.wr(ins, ops[0], '(uint32_t)(%s)' % self.cc(m[3:]))]
         if m.startswith('cmov') and m[4:] in CC:
             return ['if (%s) { %s }' % (self.cc(m[4:]), self.wr(ins, ops[0], self.rd(ins, ops[1])))]
+        if m == 'xlatb':  # al = [ebx + al] (a segment override would show as an operand)
+            if ins.prefix[1] not in (0, 0x3E):  # ds is the default; ss/es/cs are flat too
+                if ins.prefix[1] == 0x64:
+                    return ['eax = (eax & 0xFFFFFF00u) | ld8((uint32_t)(c->fs_base + ebx + (eax & 0xFFu)));']
+            return ['eax = (eax & 0xFFFFFF00u) | ld8((uint32_t)(ebx + (eax & 0xFFu)));']
         if m == 'sahf':
             return ['fl_unpack(&f, (eax >> 8) & 0xFFu);']
         if m == 'lahf':

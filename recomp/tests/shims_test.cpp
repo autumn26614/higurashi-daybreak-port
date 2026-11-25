@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>
+
+#include "host.h"
 #include "runtime.h"
 
 using namespace rt;
@@ -222,6 +225,38 @@ void test_heap() {
     uint32_t d = call_guest(cpu, fn("msvcr71.dll", "malloc"), {5000});
     expect(d == c, "freed block reused");
 }
+
+// CreateFileA's dispositions, as Windows has them (a save is CREATE_ALWAYS over a file that
+// may or may not be there).
+void test_files() {
+    char tmpl[] = "/tmp/shims_test_XXXXXX";
+    if (!mkdtemp(tmpl)) return expect(false, "mkdtemp");
+    game_root = tmpl;
+    uint32_t create = fn("kernel32.dll", "CreateFileA"), close = fn("kernel32.dll", "CloseHandle"),
+             write = fn("kernel32.dll", "WriteFile"), size = fn("kernel32.dll", "GetFileSize");
+    uint32_t name = gs("save.dat"), n = galloc(4, true), data = gs("hello");
+    auto open = [&](uint32_t access, uint32_t disposition) {
+        return call_guest(cpu, create, {name, access, 0, 0, disposition, 0x80, 0});
+    };
+    auto file_size = [&](uint32_t h) { return call_guest(cpu, size, {h, 0}); };
+    const uint32_t R = 0x80000000, W = 0x40000000, BAD = 0xFFFFFFFF;
+    expect(open(R, 3) == BAD, "OPEN_EXISTING of a missing file");
+    expect(open(R | W, 5) == BAD, "TRUNCATE_EXISTING of a missing file");
+    uint32_t h = open(W, 2);  // CREATE_ALWAYS: made
+    expect(h != BAD, "CREATE_ALWAYS of a missing file");
+    call_guest(cpu, write, {h, data, 5, n, 0});
+    call_guest(cpu, close, {h});
+    expect(open(W, 1) == BAD, "CREATE_NEW of an existing file");
+    h = open(R | W, 4);  // OPEN_ALWAYS: kept
+    expect(h != BAD && file_size(h) == 5, "OPEN_ALWAYS keeps the contents");
+    call_guest(cpu, close, {h});
+    h = open(W, 2);  // CREATE_ALWAYS: emptied
+    expect(h != BAD && file_size(h) == 0, "CREATE_ALWAYS empties an existing file");
+    call_guest(cpu, close, {h});
+    std::string path = std::string(tmpl) + "/save.dat";
+    remove(path.c_str());
+    rmdir(tmpl);
+}
 }  // namespace
 
 int main() {
@@ -235,6 +270,7 @@ int main() {
     test_codepage();
     test_math();
     test_heap();
+    test_files();
     printf("%d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

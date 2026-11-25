@@ -279,9 +279,13 @@ SHIM(kernel32, CreateFileA, 28) {
         struct stat st;
         bool exists = stat(path.c_str(), &st) == 0;
         // CREATE_NEW 1, CREATE_ALWAYS 2, OPEN_EXISTING 3, OPEN_ALWAYS 4, TRUNCATE_EXISTING 5
-        if (disposition == 2 || disposition == 1 || disposition == 5 || (!exists && disposition == 4)) mode = "w+b";
-        if (disposition == 5 && !exists) mode = "r+b";  // fails, as Windows does
-        else mode = "r+b";
+        if ((disposition == 1 && exists) || (disposition == 5 && !exists) || (disposition == 3 && !exists)) {
+            last_error = exists ? 80 : 2;  // ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND
+            if (trace_imports) log("  CreateFileA %s (disposition %u) -> failed", name.c_str(), disposition);
+            return 0xFFFFFFFF;
+        }
+        bool truncate = disposition == 1 || disposition == 2 || disposition == 5 || !exists;
+        mode = truncate ? "w+b" : "r+b";
     }
     FILE *f = path.empty() ? nullptr : fopen(path.c_str(), mode);
     if (trace_imports) log("  CreateFileA %s (%s) -> %s", name.c_str(), mode, f ? "ok" : "failed");

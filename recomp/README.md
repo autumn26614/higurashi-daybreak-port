@@ -49,6 +49,7 @@ C into `gen/` (git-ignored); the build compiles that together with `runtime/`.
 make GEN=/tmp/rgen BUILD=/tmp/rbuild -j8     # translate both modules, then compile
 /tmp/rbuild/daybreak-recomp "<folder with daybreak.exe and d3dx9_25.dll>"
 tools/run_shots.sh <seconds> <every> <first> [keys]   # PNG frames into /tmp/shots
+SKIP=1 tools/run_shots.sh 250 600 3000 "$(tools/battle_keys.sh)"   # title to a battle
 ```
 
 Keep the game folder on a Linux file system: not WSL's `/mnt/c` (slow), and not `/tmp` (a RAM disk there). Needs Python 3 with
@@ -95,8 +96,8 @@ Environment switches:
   interface), DirectInput 8 (keyboard), DirectSound 8 (software mixer, 3D, notifications),
   DirectShow (the game's movies: its own source filter, pl_mpeg decoding, IVideoWindow).
 - Running headless with the software renderer: opening movie → title → story intro movie
-  → team select → weapon select, all drawn by the game's own code. Kai boots through
-  its opening movie to its title menu.
+  → team select → weapon select → talk scene → battle, all drawn by the game's own code. Kai
+  gets as far: its opening movie, title, story team select and a battle.
 
 ## iOS
 

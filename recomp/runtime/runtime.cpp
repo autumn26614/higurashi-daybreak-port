@@ -375,6 +375,17 @@ void register_sampling() {
         }
     }).detach();
 }
+// A thread that ends leaves the list (signalling a finished thread is undefined).
+void unregister_sampling() {
+    if (!getenv("RECOMP_SAMPLE")) return;
+    std::lock_guard<std::mutex> lock(sample_mutex);
+    pthread_t self = pthread_self();
+    for (size_t i = 0; i < sample_threads.size(); i++)
+        if (pthread_equal(sample_threads[i], self)) {
+            sample_threads.erase(sample_threads.begin() + long(i));
+            break;
+        }
+}
 }  // namespace
 
 CPU *new_cpu(uint32_t stack_size) {
@@ -396,6 +407,7 @@ CPU *new_cpu(uint32_t stack_size) {
 }
 
 void free_cpu(CPU *c) {
+    unregister_sampling();
     if (t_cpu == c) t_cpu = nullptr;
     delete c;
 }

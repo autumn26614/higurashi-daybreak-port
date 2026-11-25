@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// DirectInput key codes the game reads (its default keyboard layout).
+/// DirectInput key codes the game reads (its default keyboard layout: the arrows, and eight
+/// buttons, Z X C A S D Q W, in both the base game and Kai).
 enum DIK {
     static let escape: UInt32 = 0x01, enter: UInt32 = 0x1C, space: UInt32 = 0x39
     static let z: UInt32 = 0x2C, x: UInt32 = 0x2D, c: UInt32 = 0x2E
     static let a: UInt32 = 0x1E, s: UInt32 = 0x1F, d: UInt32 = 0x20
+    static let q: UInt32 = 0x10, w: UInt32 = 0x11
     static let up: UInt32 = 0xC8, down: UInt32 = 0xD0, left: UInt32 = 0xCB, right: UInt32 = 0xCD
 }
 
@@ -22,8 +24,13 @@ struct TouchControls: View {
             HStack(alignment: .bottom) {
                 Stick().frame(width: 170, height: 170)
                 Spacer()
-                VStack(spacing: 10) {
+                VStack(alignment: .trailing, spacing: 10) {
                     HStack(spacing: 10) {
+                        KeyButton(title: "Q", key: DIK.q, size: 48)
+                        KeyButton(title: "W", key: DIK.w, size: 48)
+                    }
+                    HStack(spacing: 10) {
+                        KeyButton(title: "A", key: DIK.a)
                         KeyButton(title: "S", key: DIK.s)
                         KeyButton(title: "D", key: DIK.d)
                     }

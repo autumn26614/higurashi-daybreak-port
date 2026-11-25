@@ -33,9 +33,12 @@ final class ControllerInput {
         if y < -0.4 { keys.insert(DIK.down) }
         if p.buttonA.isPressed { keys.insert(DIK.z) }
         if p.buttonX.isPressed { keys.insert(DIK.x) }
-        if p.buttonB.isPressed || p.buttonY.isPressed { keys.insert(DIK.c) }
-        if p.rightShoulder.isPressed || p.rightTrigger.isPressed { keys.insert(DIK.d) }
-        if p.leftShoulder.isPressed || p.leftTrigger.isPressed { keys.insert(DIK.s) }
+        if p.buttonB.isPressed { keys.insert(DIK.c) }
+        if p.buttonY.isPressed { keys.insert(DIK.a) }
+        if p.leftShoulder.isPressed { keys.insert(DIK.s) }
+        if p.rightShoulder.isPressed { keys.insert(DIK.d) }
+        if p.leftTrigger.isPressed { keys.insert(DIK.q) }
+        if p.rightTrigger.isPressed { keys.insert(DIK.w) }
         if p.buttonMenu.isPressed { keys.insert(DIK.enter) }
         if p.buttonOptions?.isPressed == true { keys.insert(DIK.escape) }
         update(keys)
