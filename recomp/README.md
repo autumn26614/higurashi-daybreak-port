@@ -66,6 +66,8 @@ Environment switches:
 | `RECOMP_SAMPLE=<seconds>` | every guest thread prints its host backtrace that often |
 | `RECOMP_PROTECT=<address>` | make a guest page read-only and report who writes it |
 | `RECOMP_NOVSYNC=1` | do not pace Present to 60 Hz |
+| `RECOMP_FPS=1` | log the frame rate and draws per frame every 600 frames |
+| `RECOMP_PAD=1` | a connected game controller; scripted keys 1000+ press its buttons |
 
 ## Status
 

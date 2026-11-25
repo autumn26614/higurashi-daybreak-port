@@ -709,6 +709,16 @@ static uint32_t present(CPU *c) {
     auto d = dev(c);
     renderer().present(*d);
     d->frames++;
+    if (getenv("RECOMP_FPS") && d->frames % 600 == 0) {  // RECOMP_FPS: frame rate every 600 frames
+        static auto last = std::chrono::steady_clock::now();
+        static uint64_t last_draws = 0;
+        auto now = std::chrono::steady_clock::now();
+        double s = std::chrono::duration<double>(now - last).count();
+        log("recomp: frame %llu: %.1f fps, %.0f draws/frame", (unsigned long long)d->frames, 600 / s,
+            double(d->draws - last_draws) / 600);
+        last = now;
+        last_draws = d->draws;
+    }
     if (!getenv("RECOMP_NOVSYNC")) wait_vsync();
     if (window.on_idle) window.on_idle(c);
     return D3D_OK;
