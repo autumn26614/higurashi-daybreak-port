@@ -184,14 +184,16 @@ SHIM(msvcr71, iswdigit, kCdecl) { return iswdigit(wint_t(arg(c, 0) & 0xFFFF)) ? 
 SHIM(msvcr71, iswpunct, kCdecl) { return iswpunct(wint_t(arg(c, 0) & 0xFFFF)) ? 1 : 0; }
 SHIM(msvcr71, iswspace, kCdecl) { return iswspace(wint_t(arg(c, 0) & 0xFFFF)) ? 1 : 0; }
 SHIM(msvcr71, tolower, kCdecl) { return uint32_t(tolower(int(arg(c, 0)))); }
+// rand and srand: the MSVC generator, with its state per thread as in the C runtime.
+static thread_local uint32_t rand_seed = 1;
 SHIM(msvcr71, rand, kCdecl) {
-    static uint32_t seed = 1;  // the MSVC generator
-    static std::mutex m;
-    std::lock_guard<std::mutex> lock(m);
-    seed = seed * 214013 + 2531011;
-    return (seed >> 16) & 0x7FFF;
+    rand_seed = rand_seed * 214013 + 2531011;
+    return (rand_seed >> 16) & 0x7FFF;
 }
-SHIM(msvcr71, srand, kCdecl) { return 0; }
+SHIM(msvcr71, srand, kCdecl) {
+    rand_seed = arg(c, 0);
+    return 0;
+}
 SHIM(msvcr71, setlocale, kCdecl) {
     static uint32_t c_locale = gstrdup("C");
     return c_locale;

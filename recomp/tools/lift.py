@@ -464,11 +464,12 @@ class Lifter:
     ARITH = {0: '+', 1: '*', 4: '-', 5: 'r-', 6: '/', 7: 'r/'}
 
     def arith(self, kind, dst, src):
+        # fpc() rounds to the precision the control word selects (Direct3D sets single).
         if kind == 'r-':
-            return '%s = %s - %s;' % (dst, src, dst)
+            return '%s = fpc(c, %s - %s);' % (dst, src, dst)
         if kind == 'r/':
-            return '%s = %s / %s;' % (dst, src, dst)
-        return '%s = %s %s %s;' % (dst, dst, kind, src)
+            return '%s = fpc(c, %s / %s);' % (dst, src, dst)
+        return '%s = fpc(c, %s %s %s);' % (dst, dst, kind, src)
 
     def x87_mem(self, op, reg, A):
         if op in (0xD8, 0xDC, 0xDA, 0xDE):
@@ -557,7 +558,7 @@ class Lifter:
                 0xF2: 'ST(0) = tan(ST(0)); FPUSH(1.0);',
                 0xF3: 'ST(1) = atan2(ST(1), ST(0)); FPOP();',
                 0xF8: 'ST(0) = fmod(ST(0), ST(1));', 0xF5: 'ST(0) = remainder(ST(0), ST(1));',
-                0xFA: 'ST(0) = sqrt(ST(0));',
+                0xFA: 'ST(0) = fpc(c, sqrt(ST(0)));',
                 0xFB: '{ double x = ST(0); ST(0) = sin(x); FPUSH(cos(x)); }',
                 0xFC: 'ST(0) = fround(c, ST(0));', 0xFD: 'ST(0) = ldexp(ST(0), (int)trunc(ST(1)));',
                 0xFE: 'ST(0) = sin(ST(0));', 0xFF: 'ST(0) = cos(ST(0));',
@@ -664,7 +665,7 @@ def main():
                 n = name if isinstance(name, str) else '#%d' % name
                 rows.append('    {%s, "%s", "%s"},' % (hx(img.base + iat), dll, n))
         fo.write('const uint32_t %s_import_count = %d;\n' % (prefix, len(rows)))
-        fo.write('const ImportSlot %s_imports[] = {\n%s\n};\n' % (prefix, '\n'.join(rows)))
+        fo.write('const ImportSlot %s_imports[] = {\n%s\n    {0, NULL, NULL}\n};\n' % (prefix, '\n'.join(rows)))
     print('%d functions in %d files; %d untranslated instructions (traps)' % (len(entries), nfiles, traps))
 
 

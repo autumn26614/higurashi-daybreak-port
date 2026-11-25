@@ -277,7 +277,9 @@ SHIM(kernel32, CreateFileA, 28) {
     if (access & 0x40000000) {  // GENERIC_WRITE
         struct stat st;
         bool exists = stat(path.c_str(), &st) == 0;
-        if (disposition == 2 || disposition == 1 || (!exists && (disposition == 4))) mode = "w+b";
+        // CREATE_NEW 1, CREATE_ALWAYS 2, OPEN_EXISTING 3, OPEN_ALWAYS 4, TRUNCATE_EXISTING 5
+        if (disposition == 2 || disposition == 1 || disposition == 5 || (!exists && disposition == 4)) mode = "w+b";
+        if (disposition == 5 && !exists) mode = "r+b";  // fails, as Windows does
         else mode = "r+b";
     }
     FILE *f = path.empty() ? nullptr : fopen(path.c_str(), mode);
@@ -328,7 +330,15 @@ SHIM(kernel32, SetFilePointer, 16) {
 SHIM(kernel32, CloseHandle, 4) { return handle_close(arg(c, 0)) ? 1 : 0; }
 
 // ---- process and modules ----
-SHIM(kernel32, GetModuleHandleA, 4) { return arg(c, 0) ? 0 : 0x400000; }
+SHIM(kernel32, GetModuleHandleA, 4) {
+    // The modules that exist: the exe and d3dx9 (at their bases); others are not loaded.
+    if (!arg(c, 0)) return 0x400000;
+    std::string n = gstr(arg(c, 0));
+    for (auto &ch : n) ch = char(tolower(static_cast<unsigned char>(ch)));
+    if (n == "daybreak.exe" || n == "daybreak") return 0x400000;
+    if (n == "d3dx9_25.dll" || n == "d3dx9_25") return 0x00A00000;
+    return 0;
+}
 SHIM(kernel32, GetModuleFileNameA, 12) {
     std::string s = std::string(kGuestDir) + "\\daybreak.exe";
     uint32_t n = arg(c, 2);
@@ -390,7 +400,9 @@ SHIM(kernel32, LoadLibraryA, 4) {
 }
 SHIM(kernel32, FreeLibrary, 4) { return 1; }
 SHIM(kernel32, GetProcAddress, 8) {
-    std::string dll = arg(c, 0) == 0x400000 ? "daybreak" : gstr(arg(c, 0));
+    uint32_t h = arg(c, 0);
+    if (!h) return 0;
+    std::string dll = h == 0x400000 ? "daybreak" : h == 0x00A00000 ? "d3dx9_25" : gstr(h);
     uint32_t p = arg(c, 1);
     std::string name = p < 0x10000 ? "#" + std::to_string(p) : gstr(p);
     uint32_t a = resolve_import(dll, name);

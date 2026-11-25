@@ -520,6 +520,7 @@ private:
         id<MTLTexture> tex = nil;
         uint64_t version = ~0ull;
         bool rt = false;
+        uint32_t rt_version = 0;  // the image a render target was made for (versions are unique)
     };
     struct VBuf {
         id<MTLBuffer> buf = nil;
@@ -636,7 +637,7 @@ private:
     // ---- resources ----
     id<MTLTexture> color_target(Image &im) {
         Tex &t = textures_[im.mem];
-        if (!t.tex || !t.rt || t.tex.width != im.width || t.tex.height != im.height) {
+        if (!t.tex || !t.rt || t.rt_version != im.version || t.tex.width != im.width || t.tex.height != im.height) {
             MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
                                                                                           width:im.width
                                                                                          height:im.height
@@ -645,6 +646,7 @@ private:
             td.storageMode = MTLStorageModePrivate;
             t.tex = [dev_ newTextureWithDescriptor:td];
             t.rt = true;
+            t.rt_version = im.version;
         }
         return t.tex;
     }
@@ -654,7 +656,10 @@ private:
         if (!tx || tx->levels.empty()) return nil;
         Image &l0 = tx->levels[0];
         Tex &t = textures_[l0.mem];
-        if (t.rt) return t.tex;
+        if (t.rt) {
+            if (t.rt_version == l0.version) return t.tex;
+            t = Tex{};  // freed render target memory now holds another texture
+        }
         uint64_t version = 0;
         for (auto &l : tx->levels) version = version * 31 + l.version;
         if (t.tex && t.version == version && t.tex.width == l0.width && t.tex.height == l0.height) return t.tex;

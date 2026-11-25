@@ -68,17 +68,25 @@ SHIM(msvcr71, __p__commode, kCdecl) {
     return g_commode;
 }
 SHIM(msvcr71, _controlfp, kCdecl) {
-    // Abstract control bits: _MCW_RC 0x300 (near 0, down 0x100, up 0x200, chop 0x300).
+    // Abstract control bits: _MCW_RC 0x300 (near 0, down 0x100, up 0x200, chop 0x300) and
+    // _MCW_PC 0x30000 (_PC_64 0, _PC_53 0x10000, _PC_24 0x20000); exceptions stay masked.
     uint32_t nw = arg(c, 0), mask = arg(c, 1);
-    uint32_t rc = (c->fcw >> 10) & 3;
-    uint32_t cur = (rc == 1 ? 0x100 : rc == 2 ? 0x200 : rc == 3 ? 0x300 : 0) | 0x8001F;
+    auto current = [&] {
+        uint32_t rc = (c->fcw >> 10) & 3, pc = (c->fcw >> 8) & 3;
+        return (rc == 1 ? 0x100u : rc == 2 ? 0x200u : rc == 3 ? 0x300u : 0u) |
+               (pc == 0 ? 0x20000u : pc == 2 ? 0x10000u : 0u) | 0x8001Fu;
+    };
     if (mask & 0x300) {
         uint32_t want = nw & 0x300;
         uint32_t bits = want == 0x100 ? 1 : want == 0x200 ? 2 : want == 0x300 ? 3 : 0;
         c->fcw = uint16_t((c->fcw & ~0x0C00) | (bits << 10));
-        cur = (cur & ~0x300u) | want;
     }
-    return cur;
+    if (mask & 0x30000) {
+        uint32_t want = nw & 0x30000;
+        uint32_t bits = want == 0x20000 ? 0 : want == 0x10000 ? 2 : 3;
+        c->fcw = uint16_t((c->fcw & ~0x0300) | (bits << 8));
+    }
+    return current();
 }
 SHIM(msvcr71, __getmainargs, kCdecl) {
     static uint32_t argv = 0, envp = 0;
@@ -281,7 +289,11 @@ SHIM(msvcr71, _vsnprintf, kCdecl) {
     std::string s;
     format_guest(s, gstr(arg(c, 2)), arg(c, 3));
     uint32_t n = arg(c, 1);
-    if (s.size() >= n) {
+    if (s.size() == n) {  // fits exactly: no terminator, the length returned
+        memcpy(GM + arg(c, 0), s.data(), n);
+        return n;
+    }
+    if (s.size() > n) {
         memcpy(GM + arg(c, 0), s.data(), n);
         return 0xFFFFFFFF;
     }
@@ -319,7 +331,30 @@ SHIM(msvcr71, perror, kCdecl) {
 SHIM(msvcr71, fopen, kCdecl) {
     std::string path = host_path(gstr(arg(c, 0)));
     std::string mode = gstr(arg(c, 1));
-    FILE *f = path.empty() ? nullptr : fopen(path.c_str(), mode.c_str());
+    std::string host_mode;
+    for (char ch : mode)
+        if (ch != 't') host_mode += ch;
+    FILE *f = path.empty() ? nullptr : fopen(path.c_str(), host_mode.c_str());
+    // Text-mode reading (the default without 'b'): Windows turns CR LF into LF. Serve the
+    // translated contents from memory.
+    if (f && mode.find('b') == std::string::npos && mode[0] == 'r' && mode.find('+') == std::string::npos) {
+        std::string data;
+        char chunk[4096];
+        size_t got;
+        while ((got = fread(chunk, 1, sizeof chunk, f)) > 0) data.append(chunk, got);
+        fclose(f);
+        std::string text;
+        for (size_t i = 0; i < data.size(); i++) {
+            if (data[i] == 0x1A) break;  // Ctrl-Z ends a text file
+            if (data[i] == '\r' && i + 1 < data.size() && data[i + 1] == '\n') continue;
+            text += data[i];
+        }
+        f = tmpfile();
+        if (f) {
+            fwrite(text.data(), 1, text.size(), f);
+            rewind(f);
+        }
+    }
     if (trace_imports) log("  fopen %s (%s) -> %s", gstr(arg(c, 0)), mode.c_str(), f ? "ok" : "failed");
     if (!f) return 0;
     uint32_t g = galloc(32, true);
@@ -391,21 +426,73 @@ SHIM(msvcr71, _ftol, kCdecl) {
     return uint32_t(v);
 }
 
+// qsort as MSVC's C runtime does it (a quicksort with an explicit stack, selection sort for
+// eight or fewer elements), so elements that compare equal end up in the same order.
 SHIM(msvcr71, qsort, kCdecl) {
-    uint32_t base = arg(c, 0), n = arg(c, 1), w = arg(c, 2), cmp = arg(c, 3);
-    // Insertion sort through the guest comparator (stable and simple; lists here are short).
-    std::vector<uint8_t> tmp(w);
-    for (uint32_t i = 1; i < n; i++) {
-        memcpy(tmp.data(), GM + base + i * w, w);
-        uint32_t key = galloc(w);
-        memcpy(GM + key, tmp.data(), w);
-        uint32_t j = i;
-        while (j > 0 && int32_t(call_guest(c, cmp, {base + (j - 1) * w, key})) > 0) {
-            memcpy(GM + base + j * w, GM + base + (j - 1) * w, w);
-            j--;
+    uint32_t base = arg(c, 0), num = arg(c, 1), width = arg(c, 2), cmp = arg(c, 3);
+    if (num < 2 || width == 0) return 0;
+    std::vector<uint8_t> tmp(width);
+    auto swap = [&](uint32_t a, uint32_t b) {
+        if (a == b) return;
+        memcpy(tmp.data(), GM + a, width);
+        memmove(GM + a, GM + b, width);
+        memcpy(GM + b, tmp.data(), width);
+    };
+    auto comp = [&](uint32_t a, uint32_t b) { return int32_t(call_guest(c, cmp, {a, b})); };
+    auto shortsort = [&](uint32_t lo, uint32_t hi) {
+        while (hi > lo) {
+            uint32_t max = lo;
+            for (uint32_t p = lo + width; p <= hi; p += width)
+                if (comp(p, max) > 0) max = p;
+            swap(max, hi);
+            hi -= width;
         }
-        memcpy(GM + base + j * w, GM + key, w);
-        gfree(key);
+    };
+    uint32_t lostk[64], histk[64];
+    int sp = 0;
+    uint32_t lo = base, hi = base + width * (num - 1);
+    for (;;) {
+        uint32_t size = (hi - lo) / width + 1;
+        if (size <= 8) {
+            shortsort(lo, hi);
+        } else {
+            uint32_t mid = lo + (size / 2) * width;
+            swap(mid, lo);
+            uint32_t loguy = lo, higuy = hi + width;
+            for (;;) {
+                do {
+                    loguy += width;
+                } while (loguy <= hi && comp(loguy, lo) <= 0);
+                do {
+                    higuy -= width;
+                } while (higuy > lo && comp(higuy, lo) >= 0);
+                if (higuy < loguy) break;
+                swap(loguy, higuy);
+            }
+            swap(lo, higuy);
+            if (higuy - 1 - lo >= hi - loguy) {
+                if (lo + width < higuy) {
+                    lostk[sp] = lo;
+                    histk[sp++] = higuy - width;
+                }
+                if (loguy < hi) {
+                    lo = loguy;
+                    continue;
+                }
+            } else {
+                if (loguy < hi) {
+                    lostk[sp] = loguy;
+                    histk[sp++] = hi;
+                }
+                if (lo + width < higuy) {
+                    hi = higuy - width;
+                    continue;
+                }
+            }
+        }
+        if (--sp < 0) break;
+        lo = lostk[sp];
+        hi = histk[sp];
     }
     return 0;
 }

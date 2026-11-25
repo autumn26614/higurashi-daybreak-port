@@ -20,6 +20,7 @@ enum Format : uint32_t {
     FMT_DXT4 = 0x34545844, FMT_DXT5 = 0x35545844,
 };
 bool is_dxt(uint32_t f);
+uint32_t next_version();
 uint32_t bits_per_pixel(uint32_t f);
 uint32_t pitch_of(uint32_t f, uint32_t w);   // bytes per row (per block row for DXT)
 uint32_t rows_of(uint32_t f, uint32_t h);    // rows (block rows for DXT)
@@ -28,7 +29,10 @@ uint32_t rows_of(uint32_t f, uint32_t h);    // rows (block rows for DXT)
 struct Image {
     uint32_t width = 0, height = 0, format = 0, pitch = 0;
     uint32_t mem = 0, size = 0;  // guest address and size
-    uint32_t version = 0;        // bumped on every unlock, so renderers can re-upload
+    // A fresh value from next_version() at creation and on every unlock: unique across all
+    // resources, so renderer caches keyed by address cannot mistake a new resource that
+    // reuses freed memory for the old one.
+    uint32_t version = next_version();
 };
 
 struct DeviceChild : ComObject {
@@ -58,7 +62,7 @@ struct Texture : Resource {
 struct Buffer : Resource {  // vertex or index buffer
     uint32_t length = 0, fvf = 0, format = 0;
     uint32_t mem = 0;
-    uint32_t version = 0;
+    uint32_t version = next_version();
     ~Buffer() override;
 };
 

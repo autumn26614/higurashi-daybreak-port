@@ -7,6 +7,7 @@
 #include "msl.h"
 #include "shader.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -43,10 +44,17 @@ uint32_t fbits(float f) {
     return b;
 }
 
+// A texture level's surface counts on its texture (see surface_add_ref).
+uint32_t counted(uint32_t o) {
+    if (auto s = com_as<Surface>(o))
+        if (s->parent_self) return s->parent_self;
+    return o;
+}
 void add_ref(uint32_t o) {
-    if (auto p = com_get(o)) p->refs++;
+    if (auto p = com_get(counted(o))) p->refs++;
 }
 void release(uint32_t o) {
+    o = counted(o);
     if (auto p = com_get(o))
         if (--p->refs == 0) com_release_all(o);
 }
@@ -62,6 +70,11 @@ constexpr uint32_t D3D_OK = 0, D3DERR_INVALIDCALL = 0x8876086C, D3DERR_NOTAVAILA
 }  // namespace
 
 void set_renderer(std::unique_ptr<Renderer> r) { g_renderer = std::move(r); }
+
+uint32_t next_version() {
+    static std::atomic<uint32_t> v{1};
+    return v++;
+}
 
 bool is_dxt(uint32_t f) { return f == FMT_DXT1 || f == FMT_DXT2 || f == FMT_DXT3 || f == FMT_DXT4 || f == FMT_DXT5; }
 
@@ -148,8 +161,16 @@ static void write_desc(uint32_t d, const Image &im, uint32_t type, uint32_t usag
     st32(d + 24, im.width);
     st32(d + 28, im.height);
 }
+// A texture level's surface has no reference count of its own: AddRef and Release go to the
+// texture (Direct3D's containers), so the texture lives while its surfaces are held.
+static uint32_t surface_add_ref(CPU *c);
+static uint32_t surface_release(CPU *c);
+
 static const Method surface_vt[] = {
-    RESOURCE_METHODS,
+    {"QueryInterface", 3, ::rt::com_query_interface}, {"AddRef", 1, surface_add_ref},
+    {"Release", 1, surface_release}, I(GetDevice, 2, resource_get_device), M(SetPrivateData, 5),
+    M(GetPrivateData, 4), M(FreePrivateData, 2), I(SetPriority, 2, zero), I(GetPriority, 1, zero),
+    I(PreLoad, 1, zero), I(GetType, 1, resource_get_type),
     I(GetContainer, 3, [](CPU *c) {
         auto s = com_this<Surface>(c);
         uint32_t o = s->parent_self ? s->parent_self : s->device;
@@ -164,11 +185,33 @@ static const Method surface_vt[] = {
     }),
     I(LockRect, 4, [](CPU *c) { return lock_rect(com_this<Surface>(c)->image(), arg(c, 1), arg(c, 2)); }),
     I(UnlockRect, 1, [](CPU *c) {
-        com_this<Surface>(c)->image().version++;
+        com_this<Surface>(c)->image().version = next_version();
         return D3D_OK;
     }),
     M(GetDC, 2), M(ReleaseDC, 2),
 };
+
+static uint32_t surface_add_ref(CPU *c) {
+    auto s = com_this<Surface>(c);
+    if (s->parent_self) {
+        add_ref(s->parent_self);
+        auto t = com_get(s->parent_self);
+        return t ? t->refs : 0;
+    }
+    return ++s->refs;
+}
+static uint32_t surface_release(CPU *c) {
+    auto s = com_this<Surface>(c);
+    if (s->parent_self) {
+        auto t = com_get(s->parent_self);
+        uint32_t r = t ? t->refs - 1 : 0;
+        release(s->parent_self);
+        return r;
+    }
+    uint32_t r = --s->refs;
+    if (r == 0) com_release_all(s->self);
+    return r;
+}
 
 static uint32_t new_surface(uint32_t device, Image im, uint32_t usage, uint32_t pool) {
     auto s = std::make_shared<Surface>();
@@ -210,7 +253,7 @@ static const Method texture_vt[] = {
             s->pool = t->pool;
             t->surfaces[l] = com_new(s, com_vtable("IDirect3DSurface9", surface_vt));  // the texture's reference
         }
-        add_ref(t->surfaces[l]);
+        add_ref(t->self);  // the surface's reference is the texture's
         st32(arg(c, 2), t->surfaces[l]);
         return D3D_OK;
     }),
@@ -222,7 +265,7 @@ static const Method texture_vt[] = {
     }),
     I(UnlockRect, 2, [](CPU *c) {
         auto t = com_this<Texture>(c);
-        if (arg(c, 1) < t->levels.size()) t->levels[arg(c, 1)].version++;
+        if (arg(c, 1) < t->levels.size()) t->levels[arg(c, 1)].version = next_version();
         return D3D_OK;
     }),
     I(AddDirtyRect, 2, ok),
@@ -255,7 +298,7 @@ static const Method buffer_vt[] = {
         return D3D_OK;
     }),
     I(Unlock, 1, [](CPU *c) {
-        com_this<Buffer>(c)->version++;
+        com_this<Buffer>(c)->version = next_version();
         return D3D_OK;
     }),
     I(GetDesc, 2, [](CPU *c) {
@@ -442,15 +485,31 @@ static void copy_marked(const State &block, const State &from, State &to, bool t
         if (block.vs_const_b[i] != kUnset) to.vs_const_b[i] = from.vs_const_b[i];
 }
 
+// The objects a block holds (textures, buffers, declaration, shaders), as Direct3D's
+// blocks hold references to them.
+template <class F> static void block_objects(const State &s, F f) {
+    for (int i = 0; i < 16; i++) {
+        if (s.textures[i] != kUnset && s.textures[i]) f(s.textures[i]);
+        if (s.streams[i].vb != kUnset && s.streams[i].vb) f(s.streams[i].vb);
+    }
+    for (uint32_t o : {s.indices, s.decl, s.vs, s.ps})
+        if (o != kUnset && o) f(o);
+}
+
 struct StateBlock : DeviceChild {
     State st;  // the values, with kUnset where the block does not cover a field
+    ~StateBlock() override { block_objects(st, release); }
 };
 static std::shared_ptr<Device> device_of(uint32_t self) { return com_as<Device>(self); }
 static const Method stateblock_vt[] = {
     COM_IUNKNOWN, I(GetDevice, 2, resource_get_device),
     I(Capture, 1, [](CPU *c) {
         auto b = com_this<StateBlock>(c);
-        if (auto d = device_of(b->device)) copy_marked(b->st, d->st, b->st, false);
+        if (auto d = device_of(b->device)) {
+            block_objects(b->st, release);
+            copy_marked(b->st, d->st, b->st, false);
+            block_objects(b->st, add_ref);
+        }
         return D3D_OK;
     }),
     I(Apply, 1, [](CPU *c) {
@@ -464,6 +523,7 @@ static uint32_t new_state_block(uint32_t device, const State &st) {
     auto b = std::make_shared<StateBlock>();
     b->device = device;
     b->st = st;
+    block_objects(b->st, add_ref);
     return com_new(b, com_vtable("IDirect3DStateBlock9", stateblock_vt));
 }
 
@@ -841,6 +901,7 @@ static const Method device_vt[] = {
         d->st = *d->recording;
         d->recording.reset();
         st32(arg(c, 1), new_state_block(d->self, rec));
+        block_objects(rec, release);  // the references bind() took while recording
         return D3D_OK;
     }), M(SetClipStatus, 2), M(GetClipStatus, 2),
     I(GetTexture, 3, [](CPU *c) {
@@ -1187,6 +1248,9 @@ static const Method d3d9_vt[] = {
         } else {
             d->st.rs[7] = 0;
         }
+        // Like Direct3D 9: unless D3DCREATE_FPU_PRESERVE, the calling thread's x87 switches to
+        // single precision (with exceptions masked) and stays so.
+        if (!(arg(c, 4) & 2)) c->fcw = uint16_t((c->fcw & ~0x0300u) | 0x003F);
         log("recomp: Direct3D device %ux%u, format %u, depth %u (flags %x)", d->width, d->height,
             d->backbuffer_format, ld32(pp + 36) ? ld32(pp + 40) : 0, arg(c, 4));
         st32(arg(c, 6), self);

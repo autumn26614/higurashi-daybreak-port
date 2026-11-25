@@ -213,6 +213,11 @@ static inline void fl_unpack(Fl *f, uint32_t v) {
 #define FPUSH(v) do { double v_ = (v); c->top = (c->top - 1) & 7; c->st[c->top] = v_; } while (0)
 #define FPOP() (c->top = (c->top + 1) & 7)
 
+/* An arithmetic result rounded to the precision control of the control word: 00 single
+ * (what Direct3D 9 sets on the thread that creates its device), 10 double, 11 extended
+ * (kept as double here). */
+static inline double fpc(const CPU *c, double v) { return ((c->fcw >> 8) & 3) == 0 ? (double)(float)v : v; }
+
 /* Compare a with b into C0/C2/C3 (as fcom does). */
 static inline void fcmp(CPU *c, double a, double b) {
     uint16_t s = c->fsw & ~0x4500;

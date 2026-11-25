@@ -47,3 +47,12 @@ clean:
 	rm -rf $(BUILD) $(GEN)
 
 .PHONY: all link run clean
+
+# Checks that need no game data (x86-64 Linux with gcc): the flag helpers against the
+# CPU, and the lifter on 32-bit code compiled from tests/lifter/cases.c.
+test:
+	$(CXX) -std=c++17 -O1 -w -Iruntime tests/flags_test.cpp -o $(BUILD)/flags_test
+	$(BUILD)/flags_test
+	sh tests/lifter/run.sh
+
+.PHONY: test

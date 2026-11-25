@@ -41,6 +41,7 @@ struct Graph {
     bool has_player = false;
     std::atomic<bool> stop{false};
     std::atomic<int> state{0};  // 0 stopped, 1 paused, 2 running
+    std::atomic<int> facets{0};
     double position = 0;
     // events
     std::vector<std::array<uint32_t, 3>> events;
@@ -77,8 +78,20 @@ struct Graph {
 std::mutex current_mutex;
 std::weak_ptr<Graph> playing;
 
+// The interfaces of a graph are separate guest objects; when the game has released them
+// all, the graph stops (as DirectShow's does when it is destroyed). The player thread is
+// left to finish on its own: it may be inside the game's reader.
 struct Facet : ComObject {
     std::shared_ptr<Graph> g;
+    explicit Facet(std::shared_ptr<Graph> graph) : g(std::move(graph)) { g->facets++; }
+    ~Facet() override {
+        if (--g->facets == 0) {
+            g->state = 0;
+            g->stop = true;
+            if (g->has_player) pthread_detach(g->player);
+            g->has_player = false;
+        }
+    }
 };
 std::shared_ptr<Graph> graph(CPU *c) {
     auto f = com_as<Facet>(arg(c, 0));
@@ -440,8 +453,7 @@ const Iface kIfaces[] = {
 uint32_t facet_for(const std::shared_ptr<Graph> &g, const std::string &iid) {
     for (const Iface &i : kIfaces) {
         if (iid != i.iid) continue;
-        auto f = std::make_shared<Facet>();
-        f->g = g;
+        auto f = std::make_shared<Facet>(g);
         f->iids = {iid};
         return com_new(f, com_vtable(i.name, i.vt, i.n));
     }
