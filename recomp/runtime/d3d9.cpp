@@ -2,6 +2,11 @@
 // locks and writes it directly); drawing goes to a Renderer.
 #include "d3d9.h"
 
+#include <fstream>
+
+#include "msl.h"
+#include "shader.h"
+
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -320,6 +325,36 @@ static const Method shader_vt[] = {
         return D3D_OK;
     }),
 };
+
+// RECOMP_DUMP_MSL=<dir>: write every shader the game creates as Metal source (checking the
+// translation without a Mac).
+static void dump_msl(const Shader &s) {
+    const char *dir = getenv("RECOMP_DUMP_MSL");
+    if (!dir) return;
+    static int n = 0;
+    static bool common = false;
+    if (!common) {
+        common = true;
+        std::ofstream(std::string(dir) + "/common.metal") << msl::prelude() << msl::fixed_function();
+    }
+    shader::Program p = shader::decode(s.code.data(), s.code.size());
+    std::string err, name = std::string(s.pixel ? "ps_" : "vs_") + std::to_string(n++);
+    std::string src = s.pixel ? msl::fragment(p, name, &err) : msl::vertex(p, name, &err);
+    if (!err.empty() || !p.error.empty()) log("recomp: %s does not translate: %s%s", name.c_str(), p.error.c_str(), err.c_str());
+    std::ofstream f(std::string(dir) + "/" + name + ".metal");
+    f << src << "/* decoded:\n";
+    for (const auto &in : p.ins) {
+        char b[160];
+        snprintf(b, sizeof b, "op %u%s dst t%u n%u mask %x sat %d shift %d | src", in.op, in.coissue ? " +" : "",
+                 in.d.type, in.d.num, in.d.mask, in.d.sat, in.d.shift);
+        f << b;
+        for (int k = 0; k < in.nsrc; k++)
+            f << " t" << int(in.s[k].type) << " n" << in.s[k].num << " mod" << int(in.s[k].mod) << " swz"
+              << int(in.s[k].swz[0]) << int(in.s[k].swz[1]) << int(in.s[k].swz[2]) << int(in.s[k].swz[3]);
+        f << "\n";
+    }
+    f << "*/\n";
+}
 
 static uint32_t shader_length(uint32_t a) {  // tokens up to and including the end token
     uint32_t i = 1;
@@ -941,6 +976,7 @@ static const Method device_vt[] = {
         s->code.resize(n);
         memcpy(s->code.data(), GM + arg(c, 1), 4 * n);
         if (trace_imports) log("  vertex shader %08x, %u tokens", s->code[0], n);
+        dump_msl(*s);
         st32(arg(c, 2), com_new(s, com_vtable("IDirect3DVertexShader9", shader_vt)));
         return D3D_OK;
     }),
@@ -1022,6 +1058,7 @@ static const Method device_vt[] = {
         s->code.resize(n);
         memcpy(s->code.data(), GM + arg(c, 1), 4 * n);
         if (trace_imports) log("  pixel shader %08x, %u tokens", s->code[0], n);
+        dump_msl(*s);
         st32(arg(c, 2), com_new(s, com_vtable("IDirect3DPixelShader9", shader_vt)));
         return D3D_OK;
     }),
