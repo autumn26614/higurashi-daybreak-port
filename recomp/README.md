@@ -69,6 +69,16 @@ Environment switches:
 | `RECOMP_FPS=1` | log the frame rate and draws per frame every 600 frames |
 | `RECOMP_PAD=1` | a connected game controller; scripted keys 1000+ press its buttons |
 
+## Tests
+
+- `make test` (x86-64 Linux): `tests/flags_test.cpp` checks every flag helper against the
+  CPU; `tests/lifter/run.sh` compiles C as 32-bit x86 at -O0..-Os, translates it and runs it
+  against native builds (integer maths, jump tables, recursion, strings, x87).
+- `tests/render_test.mm` (macOS, in CI): synthetic Direct3D 9 scenes through the shims, with
+  the software renderer and with Metal, compared pixel by pixel; the frames are kept as a CI
+  artifact. `tools/msl_check.cpp`: the generated Metal code, including shaders that use every
+  instruction the game's shaders use, compiled with Apple's compiler.
+
 ## Status
 
 - `daybreak.exe` (~4,400 functions) and `d3dx9_25.dll` (~6,000) are translated. D3DX runs
