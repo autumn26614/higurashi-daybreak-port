@@ -77,6 +77,10 @@ jobs:
           test -n "$IPA_PASSWORD"
           APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakRecomp.app"
           file "$APP/DaybreakRecomp" | grep -q arm64
+          # The translated game must be in it (without it the app only says the code is missing).
+          n=$(nm -U "$APP/DaybreakRecomp" | grep -c " _F_00" || true)
+          echo "app binary: $(stat -f %z "$APP/DaybreakRecomp") bytes, $n translated game functions"
+          test "$n" -gt 1000
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
           cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
           (cd "$RUNNER_TEMP/ipa" && zip -qry Daybreak-recomp-unsigned.ipa Payload)
