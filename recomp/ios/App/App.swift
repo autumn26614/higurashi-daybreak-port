@@ -42,9 +42,19 @@ struct RootView: View {
     @State private var playing = false
     @Environment(\.scenePhase) private var phase
 
+    /// Launch arguments for screenshots of the controls (CI has no game to run).
+    private let preview: GameScreen.Preview? = {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-controlsPanel") { return .panel }
+        if args.contains("-controlsPreview") { return .pressed }
+        return nil
+    }()
+
     var body: some View {
         Group {
-            if playing, let folder {
+            if let preview {
+                GameScreen(folder: nil, preview: preview)
+            } else if playing, let folder {
                 GameScreen(folder: folder)
             } else {
                 setup
@@ -84,7 +94,7 @@ struct RootView: View {
                         .buttonStyle(.borderedProminent)
                         .font(.title2)
                         .accessibilityIdentifier("play")
-                    Text("Touch controls appear on screen; a connected game controller works too.")
+                    Text("Touch controls appear on screen. Game controllers and keyboards work too; the gear in the corner sets the controls up.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -96,23 +106,51 @@ struct RootView: View {
     }
 }
 
-/// The game's frame with the touch controls over it (hidden while a controller is connected).
+/// The game's frame with the controls over it. The on-screen controls hide while a gamepad is
+/// connected (unless the settings say otherwise); the gear opens the control settings.
 struct GameScreen: View {
-    let folder: URL
+    /// nil: the controls alone, over a stand-in picture (the `-controlsPreview` launch
+    /// argument, for screenshots of the controls without the game).
+    let folder: URL?
+    var preview = Preview.none
     @State private var audio = GameAudio()
-    @State private var controller = GCController.controllers().contains { $0.extendedGamepad != nil }
+    @State private var controller = ControllerInput.gamepadConnected
+    @State private var panel = false
+    @AppStorage("controls.withController") private var withController = false
+
+    enum Preview { case none, pressed, panel }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            MetalGameView(folder: folder).ignoresSafeArea()
-            if !controller { TouchControls() }
+            if let folder {
+                MetalGameView(folder: folder).ignoresSafeArea()
+            } else {
+                LinearGradient(colors: [Color(red: 0.35, green: 0.45, blue: 0.6), Color(red: 0.55, green: 0.45, blue: 0.3)],
+                               startPoint: .top, endPoint: .bottom).ignoresSafeArea()
+            }
+            if !controller || withController {
+                TouchControls(demo: preview == .pressed)
+            }
+            VStack {
+                HStack {
+                    GearButton { panel = true }
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(.leading, 8)
+            .padding(.top, 4)
+            ControllerBanner()
+            if panel { ControlsPanel(shown: $panel).transition(.opacity) }
         }
+        .animation(.easeOut(duration: 0.15), value: panel)
         .defersSystemGestures(on: .all)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            audio.start()
             ControllerInput.shared.start()
+            if folder != nil { audio.start() }
+            if preview == .panel { panel = true }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidConnect)) { _ in update() }
@@ -120,7 +158,7 @@ struct GameScreen: View {
     }
 
     private func update() {
-        controller = GCController.controllers().contains { $0.extendedGamepad != nil }
+        controller = ControllerInput.gamepadConnected
     }
 }
 

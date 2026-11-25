@@ -103,4 +103,34 @@ jobs:
           set -o pipefail
           xcodegen generate
           xcodebuild build -project DaybreakRecomp.xcodeproj -scheme DaybreakRecomp \
-            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO | tail -40
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build/dd CODE_SIGNING_ALLOWED=NO | tail -40
+
+      # The controls cannot be seen without a Mac: run the app in the simulator with its
+      # preview launch arguments (the controls over a stand-in picture, then the settings
+      # panel) and keep the screenshots.
+      - name: Screenshots of the controls (iPhone and iPad simulators)
+        working-directory: recomp/ios
+        run: |
+          app=build/dd/Build/Products/Debug-iphonesimulator/DaybreakRecomp.app
+          mkdir -p shots
+          for family in iPhone iPad; do
+            udid=$(xcrun simctl list devices available | grep -m1 "^ *$family" | grep -oE '[0-9A-F-]{36}')
+            [ -n "$udid" ] || continue
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid"
+            xcrun simctl install "$udid" "$app"
+            for mode in controlsPreview controlsPanel; do
+              xcrun simctl launch "$udid" io.github.autumn26614.daybreak.recomp "-$mode"
+              sleep 8
+              xcrun simctl io "$udid" screenshot "shots/$family-$mode.png"
+              xcrun simctl terminate "$udid" io.github.autumn26614.daybreak.recomp
+            done
+            xcrun simctl shutdown "$udid"
+          done
+          ls -la shots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: controls-screenshots
+          path: recomp/ios/shots
