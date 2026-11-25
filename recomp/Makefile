@@ -50,9 +50,12 @@ clean:
 
 # Checks that need no game data (x86-64 Linux with gcc): the flag helpers against the
 # CPU, and the lifter on 32-bit code compiled from tests/lifter/cases.c.
-test:
+test: all
 	$(CXX) -std=c++17 -O1 -w -Iruntime tests/flags_test.cpp -o $(BUILD)/flags_test
 	$(BUILD)/flags_test
+	$(CC) -c -O1 -Iruntime runtime/gen_stub.c -o $(BUILD)/gen_stub.o
+	$(CXX) -std=c++17 -O1 -w -Iruntime tests/shims_test.cpp $(filter-out $(BUILD)/rt/main.o,$(RT_OBJ)) $(BUILD)/gen_stub.o -o $(BUILD)/shims_test -lpthread -lm
+	$(BUILD)/shims_test
 	sh tests/lifter/run.sh
 
 .PHONY: test

@@ -70,6 +70,16 @@ jobs:
           clang++ /tmp/rt/*.o -o /tmp/render_test -framework Metal -framework QuartzCore -framework CoreText             -framework CoreGraphics -framework Foundation -liconv
           /tmp/render_test /tmp/render
 
+      - name: Shims and flag helpers (macOS)
+        working-directory: recomp
+        run: |
+          set -e
+          objs=$(ls /tmp/rt/*.o | grep -v render_test)
+          clang++ -std=c++17 -O1 -w -Iruntime tests/shims_test.cpp $objs -o /tmp/shims_test             -framework Metal -framework QuartzCore -framework CoreText -framework CoreGraphics -framework Foundation -liconv
+          /tmp/shims_test
+          clang++ -std=c++17 -O1 -w -Iruntime tests/flags_test.cpp -o /tmp/flags_test
+          /tmp/flags_test
+
       - name: Rendered frames
         if: always()
         uses: actions/upload-artifact@v4
