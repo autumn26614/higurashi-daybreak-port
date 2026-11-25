@@ -34,6 +34,20 @@ enum GameFolder {
         [documents.appendingPathComponent("Daybreak"), documents.appendingPathComponent("data"), documents]
     }
 
+    /// Writes a short note into the Documents folder (which Files shows as "Daybreak DX"),
+    /// so the folder exists and is visible from the first launch, before any game files.
+    static func writeReadme() {
+        let url = documents.appendingPathComponent("READ ME - copy the game files here.txt")
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        let text = """
+        Copy the game's files into this folder (or into a folder named Daybreak inside it):
+        - base game: daybreak.exe, d3dx9_25.dll, daybreak00.dat, daybreak01.dat, daybreak02.dat
+        - Kai, in the same folder: also DaybreakDX.exe, daybreak04.dat, daybreak05.dat, daybreak06.dat
+        Then open the app again and tap PLAY.
+        """
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     static func find(_ game: GameKind) -> URL? {
         candidates.first { recomp_files_present($0.path, Int32(game.rawValue)) != 0 }
     }
@@ -75,7 +89,10 @@ struct RootView: View {
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .onAppear { refresh() }
+        .onAppear {
+            GameFolder.writeReadme()  // so Files shows the folder to copy the game into
+            refresh()
+        }
         .onChange(of: phase) { p in
             if p == .active && playing == nil { refresh() }
         }
