@@ -3,7 +3,7 @@
 # it the app still builds, and says the game code is missing.
 name: DaybreakRecomp
 options:
-  bundleIdPrefix: io.github.autumn26614
+  bundleIdPrefix: dev.autumn
   deploymentTarget:
     iOS: "16.0"
 settings:
@@ -41,7 +41,8 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.github.autumn26614.daybreak.recomp
+        PRODUCT_BUNDLE_IDENTIFIER: dev.autumn.daybreakdx
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon  # App/Assets.xcassets, drawn by tools/make_icon.py
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         TARGETED_DEVICE_FAMILY: "1,2"
