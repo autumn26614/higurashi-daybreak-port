@@ -1,0 +1,90 @@
+# Builds the recompiled game as an unsigned iOS app on the free public runners, from the
+# game files in the PRIVATE repository autumn26614/higurashi-daybreak-private.
+#
+# Nothing game-derived becomes public:
+# - started by hand only (no pull_request trigger, so forks never get the secrets);
+# - the translated code is never printed (only file names and pass/fail lines);
+# - the .ipa is uploaded inside a 7-Zip archive encrypted with AES-256 (file names too),
+#   whose password is the IPA_PASSWORD secret.
+#
+# Secrets (repository settings, or `gh secret set`):
+#   GAME_REPO_KEY  private half of a read-only deploy key of higurashi-daybreak-private
+#   IPA_PASSWORD   the archive password
+# Run: gh workflow run recomp-ipa.yml
+name: Recompiled game .ipa (encrypted)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: macos-15-intel
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Game files (private repository)
+        uses: actions/checkout@v4
+        with:
+          repository: autumn26614/higurashi-daybreak-private
+          ssh-key: ${{ secrets.GAME_REPO_KEY }}
+          path: private
+
+      - name: Tools
+        run: |
+          xcodebuild -version
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "capstone>=5,<6"
+          brew install xcodegen sevenzip
+
+      - name: Translate daybreak.exe and d3dx9_25.dll
+        working-directory: recomp
+        run: |
+          set -e
+          PY="$RUNNER_TEMP/venv/bin/python"
+          "$PY" tools/lift.py ../private/game/daybreak.exe gen --prefix F
+          "$PY" tools/lift.py ../private/game/d3dx9_25.dll gen --prefix X --base 0x00A00000
+          rm -rf ../private
+
+      - name: Build for device (arm64, Release, unsigned)
+        working-directory: recomp/ios
+        run: |
+          set -o pipefail
+          xcodegen generate
+          # Only summary and error-message lines: compiler errors would otherwise quote code.
+          xcodebuild build \
+            -project DaybreakRecomp.xcodeproj \
+            -scheme DaybreakRecomp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -jobs 3 \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | grep -E "^[^ ].*(error|warning): |BUILD (SUCCEEDED|FAILED)|\*\* " | grep -v "^ " | cut -c1-300 || true
+          test -d "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakRecomp.app"
+
+      - name: Package (encrypted)
+        env:
+          IPA_PASSWORD: ${{ secrets.IPA_PASSWORD }}
+        run: |
+          set -e
+          test -n "$IPA_PASSWORD"
+          APP="$RUNNER_TEMP/dd/Build/Products/Release-iphoneos/DaybreakRecomp.app"
+          file "$APP/DaybreakRecomp" | grep -q arm64
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry Daybreak-recomp-unsigned.ipa Payload)
+          cd "$RUNNER_TEMP/ipa"
+          7zz a -t7z -mhe=on -p"$IPA_PASSWORD" Daybreak-recomp-ipa.7z Daybreak-recomp-unsigned.ipa > /dev/null
+          rm -rf Payload Daybreak-recomp-unsigned.ipa
+          ls -l Daybreak-recomp-ipa.7z
+
+      - name: Upload (encrypted archive only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Daybreak-recomp-ipa-encrypted
+          path: ${{ runner.temp }}/ipa/Daybreak-recomp-ipa.7z
+          retention-days: 7
